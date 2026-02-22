@@ -271,7 +271,6 @@ const I18N = {
     dayFull: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
     monthNames: MONTHS_EN,
     importMsg: n => `Found ${n} todo(s). How would you like to import?`,
-    storedCount: n => `${n} todo${n !== 1 ? 's' : ''} stored`,
     storageUsed: 'Storage Used', storageSub: 'Data saved in your browser',
     cleanup: 'Clean Up', cleanupData: 'Clean Up Data',
     cleanupSub: 'Remove past single & range todos and old completion dates',
@@ -350,6 +349,7 @@ const I18N = {
     cleanupReasonRange: (s, e) => `Range (${s} → ${e})`,
     cleanupReasonUntilDone: (done, target) => `Until done (${done}/${target})`,
     cleanupReasonRecurring: d => `Recurring (ended ${d})`,
+    sourceCode: 'Source code on',
   },
   de: {
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
@@ -400,7 +400,6 @@ const I18N = {
     dayFull: ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'],
     monthNames: MONTHS_DE,
     importMsg: n => `${n} Todo(s) gefunden. Wie importieren?`,
-    storedCount: n => `${n} Todo${n !== 1 ? 's' : ''} gespeichert`,
     storageUsed: 'Speicherverbrauch', storageSub: 'Im Browser gespeicherte Daten',
     cleanup: 'Aufräumen', cleanupData: 'Daten aufräumen',
     cleanupSub: 'Vergangene Einzel- & Zeitraum-Todos und alte Daten entfernen',
@@ -479,6 +478,7 @@ const I18N = {
     cleanupReasonRange: (s, e) => `Zeitraum (${s} → ${e})`,
     cleanupReasonUntilDone: (done, target) => `Bis erledigt (${done}/${target})`,
     cleanupReasonRecurring: d => `Wiederkehrend (endete ${d})`,
+    sourceCode: 'Quellcode auf',
   }
 };
 
@@ -2542,8 +2542,8 @@ const Settings = {
         </a>
       </div>
 
-      <div class="footer-credits">${LF('storedCount', Store.todos.length)}
-        | &copy; ${new Date().getFullYear()} <a href="https://www.leroch.net" target="_blank" rel="noopener">Christian Leroch</a>
+      <div class="footer-credits">&copy; ${new Date().getFullYear()} <a href="https://www.leroch.net" target="_blank" rel="noopener">Christian Leroch</a>
+        | ${L('sourceCode')} <a href="https://github.com/nirastich/todo" target="_blank" rel="noopener">Github</a>
       </div>`;
     Settings.updateStorageSize();
   },
