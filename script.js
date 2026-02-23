@@ -350,7 +350,48 @@ const I18N = {
     cleanupReasonUntilDone: (done, target) => `Until done (${done}/${target})`,
     cleanupReasonRecurring: d => `Recurring (ended ${d})`,
     sourceCode: 'Source code on',
-  },
+    welcomeTour: 'Welcome Tour',
+    welcomeTourSub: 'Replay the intro and feature overview',
+    welcomeTourBtn: 'Replay',
+    welcomeSkip: 'Skip',
+    welcomeNext: 'Next',
+    welcomeBack: 'Back',
+    welcomeDone: 'Get started',
+    w1Title: 'Welcome to Todo',
+    w1Sub: 'A simple, private to-do app with folders, recurring tasks, encrypted sync, and offline support.',
+    w2Title: 'Flexible Scheduling',
+    w2Single: 'Single day',
+    w2Range: 'Date range',
+    w2Recurring: 'Recurring',
+    w2Span: 'Span mode',
+    w2Ex1: 'Buy birthday present',
+    w2Ex2: 'Read 3 chapters',
+    w2Ex3: 'Water plants',
+    w2Ex4: 'Go for a run',
+    w3Title: 'Organize with Folders',
+    w3Ex1: 'Work',
+    w3Ex2: 'Personal',
+    w3Ex3: 'Shared',
+    w3Feat1: 'Color-coded',
+    w3Feat2: 'Hide or isolate per device',
+    w3Feat3: 'Share folders with others',
+    w4Title: 'End-to-End Encrypted Sync',
+    w4Device: 'Your device',
+    w4Encrypted: 'Encrypted',
+    w4Server: 'Server',
+    w4Feat1: 'AES-256 end-to-end encryption.',
+    w4Feat2: 'No accounts, no tracking, no ads',
+    w4Feat3: 'Works offline, syncs when back online',
+    w5Title: 'Quick Tips',
+    w5Tip1T: 'Navigate days',
+    w5Tip1D: 'Use the arrow buttons or keyboard arrows',
+    w5Tip2T: 'Reorder todos',
+    w5Tip2D: 'Long-press or drag to rearrange',
+    w5Tip3T: 'Todo details',
+    w5Tip3D: 'Tap a todo for details, skip, or edit',
+    w5Tip4T: 'Install as app',
+    w5Tip4D: 'Find it in Settings for the best experience',
+      },
   de: {
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
     addTodo: 'Todo hinzufügen', editTodo: 'Todo bearbeiten', title: 'Titel',
@@ -479,6 +520,47 @@ const I18N = {
     cleanupReasonUntilDone: (done, target) => `Bis erledigt (${done}/${target})`,
     cleanupReasonRecurring: d => `Wiederkehrend (endete ${d})`,
     sourceCode: 'Quellcode auf',
+    welcomeTour: 'Willkommenstour',
+    welcomeTourSub: 'Einführung und Funktionsübersicht wiederholen',
+    welcomeTourBtn: 'Nochmal',
+    welcomeSkip: 'Überspringen',
+    welcomeNext: 'Weiter',
+    welcomeBack: 'Zurück',
+    welcomeDone: 'Los geht\'s',
+    w1Title: 'Willkommen bei TODO.73.nu',
+    w1Sub: 'Eine einfache, private Todo-App mit Ordnern, wiederkehrenden Aufgaben, verschlüsseltem Sync und Offline-Unterstützung.',
+    w2Title: 'Flexible Planung',
+    w2Single: 'Einzelner Tag',
+    w2Range: 'Zeitraum',
+    w2Recurring: 'Wiederkehrend',
+    w2Span: 'Zeitspanne',
+    w2Ex1: 'Geburtstagsgeschenk kaufen',
+    w2Ex2: '3 Kapitel lesen',
+    w2Ex3: 'Pflanzen gießen',
+    w2Ex4: 'Laufen gehen',
+    w3Title: 'Ordner & Organisation',
+    w3Ex1: 'Arbeit',
+    w3Ex2: 'Privat',
+    w3Ex3: 'Geteilt',
+    w3Feat1: 'Farblich markiert',
+    w3Feat2: 'Pro Gerät aus- oder einblenden',
+    w3Feat3: 'Ordner mit anderen teilen',
+    w4Title: 'Ende-zu-Ende verschlüsselter Sync',
+    w4Device: 'Dein Gerät',
+    w4Encrypted: 'Verschlüsselt',
+    w4Server: 'Server',
+    w4Feat1: 'AES-256 Ende-zu-Ende Verschlüsselung',
+    w4Feat2: 'Keine Konten, kein Tracking, keine Werbung',
+    w4Feat3: 'Funktioniert offline, synchronisiert automatisch',
+    w5Title: 'Schnelltipps',
+    w5Tip1T: 'Tage wechseln',
+    w5Tip1D: 'Pfeiltasten oder Pfeil-Buttons nutzen',
+    w5Tip2T: 'Todos sortieren',
+    w5Tip2D: 'Lang drücken oder ziehen zum Umsortieren',
+    w5Tip3T: 'Todo-Details',
+    w5Tip3D: 'Antippen für Details, Überspringen oder Bearbeiten',
+    w5Tip4T: 'Als App installieren',
+    w5Tip4D: 'Mehr Info in den Einstellungen',
   }
 };
 
@@ -1657,6 +1739,7 @@ const App = {
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
     });
     DragSort.init();
+    Welcome.init();
   },
 
   applyTheme() {
@@ -1912,7 +1995,7 @@ const App = {
           });
           return;
         }
-        for (const name of ['detail', 'add', 'list', 'settings']) {
+        for (const name of ['detail', 'add', 'list', 'settings', 'welcomeModal']) {
           const el = document.getElementById(name + 'Modal');
           if (el.classList.contains('open')) { Modal.close(name); return; }
         }
@@ -2534,6 +2617,11 @@ const Settings = {
         <div class="setting-action"><button class="btn btn-danger" onclick="Settings.confirmReset()">${L('reset')}</button></div>
       </div>
       
+      <div class="setting-row">
+        <div class="setting-info"><div class="setting-label">${L('welcomeTour')}</div><div class="setting-desc">${L('welcomeTourSub')}</div></div>
+        <div class="setting-action"><button class="btn btn-outline" onclick="Modal.close('settings');Welcome.show()">${L('welcomeTourBtn')}</button></div>
+      </div>
+      
       
       <div class="footer-support">
         <a href="https://ko-fi.com/nirastich" target="_blank" rel="noopener">
@@ -2853,6 +2941,214 @@ if ('serviceWorker' in navigator) {
     .catch(() => {});
 }
 
+const Welcome = {
+  _page: 0,
+  _totalPages: 5,
+
+  init() {
+    if (!localStorage.getItem('todo_welcome_seen')) {
+      this.show();
+    }
+  },
+
+  show(page) {
+    this._page = page || 0;
+    this._render();
+    requestAnimationFrame(() => document.getElementById('welcomeModal').classList.add('open'));
+  },
+
+  close() {
+    document.getElementById('welcomeModal').classList.remove('open');
+    localStorage.setItem('todo_welcome_seen', '1');
+  },
+
+  nav(dir) {
+    this._page = Math.max(0, Math.min(this._totalPages - 1, this._page + dir));
+    this._render();
+  },
+
+  goTo(page) {
+    this._page = page;
+    this._render();
+  },
+
+  _render() {
+    const p = this._page;
+    const last = this._totalPages - 1;
+    const body = document.getElementById('welcomeBody');
+    const dots = document.getElementById('welcomeDots');
+    const nav = document.getElementById('welcomeNav');
+
+    const accent = Store.settings.accent || '#76b852';
+
+    const pages = [
+      // Page 1: Welcome
+      () => `<div class="welcome-page">
+        <div class="welcome-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 11l3 3L22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+        </div>
+        <h1 class="welcome-title">${L('w1Title')}</h1>
+        <p class="welcome-sub">${L('w1Sub')}</p>
+      </div>`,
+
+      // Page 2: Scheduling (mock todo items)
+      () => {
+        const check = `<svg class="wm-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+        return `<div class="welcome-page">
+          <h2 class="welcome-title">${L('w2Title')}</h2>
+          <div class="wm-todo-list">
+            <div class="wm-todo">
+              <div class="wm-todo-check done">${check}</div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title done">${L('w2Ex1')}</div>
+                <div class="wm-todo-meta">${L('w2Single')}</div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex2')}</div>
+                <div class="wm-todo-meta">${L('w2Range')} · 1/3</div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex3')}</div>
+                <div class="wm-todo-meta">${L('w2Recurring')} · ${L('dayNames')[1]}, ${L('dayNames')[4]}</div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex4')}</div>
+                <div class="wm-todo-meta">${L('w2Span')} · ${L('dayNames')[5]} ${L('to')} ${L('dayNames')[0]} · 2/3</div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      },
+
+      // Page 3: Folders (mock folder list)
+      () => `<div class="welcome-page">
+        <h2 class="welcome-title">${L('w3Title')}</h2>
+        <div class="wm-folder-list">
+          <div class="wm-folder">
+            <span class="wm-folder-dot" style="background:#4A9EFF"></span>
+            <span class="wm-folder-name">${L('w3Ex1')}</span>
+            <span class="wm-folder-count">12</span>
+          </div>
+          <div class="wm-folder">
+            <span class="wm-folder-dot" style="background:#10B981"></span>
+            <span class="wm-folder-name">${L('w3Ex2')}</span>
+            <span class="wm-folder-count">5</span>
+          </div>
+          <div class="wm-folder">
+            <span class="wm-folder-dot" style="background:#FB923C"></span>
+            <span class="wm-folder-name">${L('w3Ex3')}</span>
+            <span class="wm-folder-count">3</span>
+            <svg class="wm-folder-shared" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+        </div>
+        <div class="wm-feat-list">
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w3Feat1')}</div>
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w3Feat2')}</div>
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w3Feat3')}</div>
+        </div>
+      </div>`,
+
+      // Page 4: Sync (flow diagram)
+      () => `<div class="welcome-page">
+        <h2 class="welcome-title">${L('w4Title')}</h2>
+        <div class="wm-sync-flow">
+          <div class="wm-sync-node">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="1.5" stroke-linecap="round">
+              <rect x="5" y="2" width="14" height="20" rx="2"/>
+              <line x1="12" y1="18" x2="12.01" y2="18"/>
+            </svg>
+            <span>${L('w4Device')}</span>
+          </div>
+          <div class="wm-sync-arrow">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="1.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            <span class="wm-sync-arrow-label">${L('w4Encrypted')}</span>
+          </div>
+          <div class="wm-sync-node">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="1.5" stroke-linecap="round">
+              <rect x="3" y="11" width="18" height="11" rx="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <span>${L('w4Server')}</span>
+          </div>
+        </div>
+        <div class="wm-feat-list">
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4Feat1')}</div>
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4Feat2')}</div>
+          <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4Feat3')}</div>
+        </div>
+      </div>`,
+
+      // Page 5: Quick Tips (icon + label pairs)
+      () => `<div class="welcome-page">
+        <h2 class="welcome-title">${L('w5Title')}</h2>
+        <div class="wm-tips">
+          <div class="wm-tip">
+            <div class="wm-tip-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+            <div class="wm-tip-text"><strong>${L('w5Tip1T')}</strong>${L('w5Tip1D')}</div>
+          </div>
+          <div class="wm-tip">
+            <div class="wm-tip-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><line x1="12" y1="2" x2="12" y2="22"/><polyline points="17 7 12 2 7 7"/><polyline points="17 17 12 22 7 17"/></svg>
+            </div>
+            <div class="wm-tip-text"><strong>${L('w5Tip2T')}</strong>${L('w5Tip2D')}</div>
+          </div>
+          <div class="wm-tip">
+            <div class="wm-tip-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div class="wm-tip-text"><strong>${L('w5Tip3T')}</strong>${L('w5Tip3D')}</div>
+          </div>
+          <div class="wm-tip">
+            <div class="wm-tip-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div class="wm-tip-text"><strong>${L('w5Tip4T')}</strong>${L('w5Tip4D')}</div>
+          </div>
+        </div>
+      </div>`
+    ];
+
+    body.innerHTML = pages[p]();
+
+    // Dots
+    dots.innerHTML = Array.from({ length: this._totalPages }, (_, i) =>
+      `<button class="welcome-dot ${i === p ? 'active' : ''}" onclick="Welcome.goTo(${i})"></button>`
+    ).join('');
+
+    // Nav buttons
+    let navHtml = '';
+    if (p === 0) {
+      navHtml = `
+        <button class="btn btn-outline" onclick="Welcome.close()">${L('welcomeSkip')}</button>
+        <button class="btn-primary" onclick="Welcome.nav(1)">${L('welcomeNext')}</button>`;
+    } else if (p === last) {
+      navHtml = `
+        <button class="btn btn-outline" onclick="Welcome.nav(-1)">${L('welcomeBack')}</button>
+        <button class="btn-primary" onclick="Welcome.close()">${L('welcomeDone')}</button>`;
+    } else {
+      navHtml = `
+        <button class="btn btn-outline" onclick="Welcome.nav(-1)">${L('welcomeBack')}</button>
+        <button class="btn-primary" onclick="Welcome.nav(1)">${L('welcomeNext')}</button>`;
+    }
+    nav.innerHTML = navHtml;
+  }
+};
+
 const DragSort = {
   _holdTimer: null,
   _dragging: null,
@@ -3043,4 +3339,5 @@ window.Folders = Folders;
 window.Store = Store;
 window.Util = Util;
 window.SyncChannel = SyncChannel;
+window.Welcome = Welcome;
 App.init();
