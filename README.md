@@ -115,7 +115,7 @@ This means the app loads instantly on repeat visits and remains fully functional
 ├── sync.php            # Sync backend
 ├── sw.js               # Service worker
 ├── qr.js               # QR code generator
-└── site.webmanifest       # PWA manifest
+└── site.webmanifest    # PWA manifest
 ```
 
 ---
