@@ -6,18 +6,18 @@
   <title>TODO</title>
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#000000">
-  <meta name="description" content="A simple, fast, and private TODO app with sync, recurring tasks, and offline support.">
+  <meta name="description" content="A simple, private to-do app with folders, recurring tasks, encrypted sync, and offline support.">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="https://todo.73.nu/">
   <meta property="og:title" content="TODO">
-  <meta property="og:description" content="A simple, fast, and private TODO app with sync, recurring tasks, and offline support.">
+  <meta property="og:description" content="A simple, private to-do app with folders, recurring tasks, encrypted sync, and offline support.">
   <meta property="og:url" content="https://todo.73.nu/">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="en_US">
   <meta property="og:locale:alternate" content="de_DE">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="TODO">
-  <meta name="twitter:description" content="A simple, fast, and private TODO app with sync, recurring tasks, and offline support.">
+  <meta name="twitter:description" content="A simple, private to-do app with folders, recurring tasks, encrypted sync, and offline support.">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self';">
   <link rel="stylesheet" href="/style.css">
   <script type="module" src="/script.js"></script>
@@ -100,6 +100,16 @@
       <p id="confirmMsg"></p>
       <div class="confirm-actions" id="confirmActions"></div>
     </div>
+  </div>
+  
+  <div id="welcomeModal">
+  <div class="welcome-card">
+    <div class="welcome-body" id="welcomeBody"></div>
+    <div class="welcome-footer">
+      <div class="welcome-dots" id="welcomeDots"></div>
+      <div class="welcome-nav" id="welcomeNav"></div>
+    </div>
+  </div>
   </div>
 
   <div class="sync-copy-toast" id="syncToast"></div>
