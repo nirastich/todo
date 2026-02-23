@@ -1296,7 +1296,7 @@ select.form-input {
 }
 
 .welcome-card {
-  background: var(--bg-2);
+  background: var(--surface);
   border-radius: 16px;
   width: min(400px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
