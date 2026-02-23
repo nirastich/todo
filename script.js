@@ -2319,6 +2319,7 @@ const DetailView = {
 const ListView = {
   filter: 'all',
   folderFilter: null,
+  searchQuery: '',
 
   render() {
     const body = document.getElementById('listModalBody');
@@ -2330,9 +2331,21 @@ const ListView = {
 
     let filtered = this.filter === 'all' ? folderBase
       : folderBase.filter(t => t.type === this.filter);
+    if (this.searchQuery) {
+      const q = this.searchQuery.toLowerCase();
+      filtered = filtered.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.notes || '').toLowerCase().includes(q)
+      );
+    }
     const sorted = [...filtered].sort((a, b) => (b.created || 0) - (a.created || 0));
 
-    let html = '';
+    let html = `<div class="list-search-row" style="margin-bottom:16px">
+      <input class="form-input form-input-sm" type="search" id="listSearchInput"
+        placeholder="${Store.settings.lang === 'de' ? 'Suchen…' : 'Search…'}"
+        value="${Util.esc(this.searchQuery)}"
+        oninput="ListView.searchQuery=this.value;ListView.render()">
+    </div>`;
 
     if (Store.folders.length) {
       html += `<div class="chip-group chip-group-bordered">
@@ -2372,6 +2385,10 @@ const ListView = {
       });
     }
     body.innerHTML = html;
+    if (this.searchQuery) {
+      const si = document.getElementById('listSearchInput');
+      if (si) { si.focus(); si.selectionStart = si.selectionEnd = si.value.length; }
+    }
   }
 };
 
@@ -2469,7 +2486,7 @@ const Settings = {
         </div>`;
       }
       const tags = [isHidden ? L('hide') : '', isIsolated ? L('isolated') : '', isNoSync ? L('noSyncFolder') : '', hasFolderSync ? L('folderSync') : ''].filter(Boolean).join(', ');
-      return `<div class="folder-list-item ${isHidden ? 'dimmed' : ''}">
+      return `<div class="folder-list-item ${isHidden ? 'dimmed' : ''}" data-folder-id="${f.id}" draggable="true">
         <div class="folder-dot-lg" style="background:${f.color}"></div>
         <div class="folder-list-item-body">
           <div class="folder-list-item-name">${Util.esc(f.name)}</div>
@@ -2565,7 +2582,7 @@ const Settings = {
         <div class="section-header">
           <div><div class="setting-label">${L('folders')}</div><div class="setting-desc">${L('foldersSub')}</div></div>
         </div>
-        ${foldersHtml}
+        <div id="folderSortList">${foldersHtml}</div>
         <div class="folder-add-row">
           <input class="form-input form-input-sm" id="newFolderName" placeholder="${L('folderNamePH')}" onkeydown="if(event.key==='Enter')Settings.addFolder()">
           <button class="btn btn-outline" onclick="Settings.addFolder()">${L('addFolder')}</button>
@@ -2634,6 +2651,7 @@ const Settings = {
         | ${L('sourceCode')} <a href="https://github.com/nirastich/todo" target="_blank" rel="noopener">Github</a>
       </div>`;
     Settings.updateStorageSize();
+    FolderDrag.bind();
   },
 
   addFolder() {
@@ -3326,6 +3344,152 @@ const DragSort = {
   },
 };
 
+const FolderDrag = {
+  _holdTimer: null,
+  _dragging: null,
+  _indicator: null,
+  _insertIndex: -1,
+
+  bind() {
+    const list = document.getElementById('folderSortList');
+    if (!list) return;
+
+    let ind = list.querySelector('.folder-drop-indicator');
+    if (!ind) {
+      ind = document.createElement('div');
+      ind.className = 'drop-indicator folder-drop-indicator';
+      list.appendChild(ind);
+    }
+    this._indicator = ind;
+
+    list.querySelectorAll('.folder-list-item[data-folder-id][draggable]').forEach(el => {
+      el.addEventListener('dragstart', e => this._onDragStart(e));
+      el.addEventListener('dragend', e => this._onDragEnd(e));
+      el.addEventListener('touchstart', e => this._onTouchStart(e), { passive: false });
+      el.addEventListener('touchmove', e => this._onTouchMove(e), { passive: false });
+      el.addEventListener('touchend', e => this._onTouchEnd(e));
+      el.addEventListener('touchcancel', e => this._onTouchEnd(e));
+    });
+
+    if (!list._fdBound) {
+      list.addEventListener('dragover', e => this._onDragOver(e));
+      list.addEventListener('dragleave', e => { if (!list.contains(e.relatedTarget)) this._hideIndicator(); });
+      list.addEventListener('drop', e => this._onDrop(e));
+      list._fdBound = true;
+    }
+  },
+
+  _getItems() {
+    const list = document.getElementById('folderSortList');
+    return list ? [...list.querySelectorAll('.folder-list-item[data-folder-id][draggable]')] : [];
+  },
+
+  _calcInsert(clientY) {
+    const items = this._getItems().filter(el => el !== this._dragging);
+    if (!items.length) return 0;
+    for (let i = 0; i < items.length; i++) {
+      const r = items[i].getBoundingClientRect();
+      if (clientY < r.top + r.height / 2) return i;
+    }
+    return items.length;
+  },
+
+  _showIndicator(idx) {
+    if (idx === this._insertIndex) return;
+    const items = this._getItems().filter(el => el !== this._dragging);
+    const list = document.getElementById('folderSortList');
+    if (!list || !this._indicator) return;
+    if (!items.length) list.prepend(this._indicator);
+    else if (idx <= 0) items[0].before(this._indicator);
+    else if (idx >= items.length) items[items.length - 1].after(this._indicator);
+    else items[idx].before(this._indicator);
+    this._indicator.classList.add('visible');
+    this._insertIndex = idx;
+  },
+
+  _hideIndicator() {
+    if (this._indicator) this._indicator.classList.remove('visible');
+    this._insertIndex = -1;
+  },
+
+  _onDragStart(e) {
+    this._dragging = e.currentTarget;
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+  },
+
+  _onDragOver(e) {
+    if (!this._dragging) return;
+    e.preventDefault();
+    this._showIndicator(this._calcInsert(e.clientY));
+  },
+
+  _onDrop(e) {
+    e.preventDefault();
+    if (!this._dragging || this._insertIndex < 0) return;
+    this._applyReorder();
+    this._hideIndicator();
+  },
+
+  _onDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    this._hideIndicator();
+    this._dragging = null;
+  },
+
+  _onTouchStart(e) {
+    const el = e.currentTarget;
+    this._holdTimer = setTimeout(() => {
+      this._dragging = el;
+      el.classList.add('drag-hold');
+      navigator.vibrate?.(30);
+      document.body.style.overflow = 'hidden';
+    }, 400);
+  },
+
+  _onTouchMove(e) {
+    if (!this._dragging) { clearTimeout(this._holdTimer); return; }
+    e.preventDefault();
+    this._showIndicator(this._calcInsert(e.touches[0].clientY));
+  },
+
+  _onTouchEnd() {
+    clearTimeout(this._holdTimer);
+    if (!this._dragging) return;
+    try {
+      if (this._insertIndex >= 0) this._applyReorder();
+    } finally {
+      this._dragging.classList.remove('drag-hold');
+      this._hideIndicator();
+      document.body.style.overflow = '';
+      this._dragging = null;
+    }
+  },
+
+  _applyReorder() {
+    const list = document.getElementById('folderSortList');
+    if (!list || !this._dragging) return;
+    const items = this._getItems().filter(el => el !== this._dragging);
+
+    if (this._insertIndex <= 0) list.prepend(this._dragging);
+    else if (this._insertIndex >= items.length) items[items.length - 1].after(this._dragging);
+    else items[this._insertIndex].before(this._dragging);
+
+    const newOrder = [...list.querySelectorAll('.folder-list-item[data-folder-id]')]
+      .map(el => el.dataset.folderId)
+      .filter(Boolean);
+
+    const folderMap = new Map(Store.folders.map(f => [f.id, f]));
+    const reordered = newOrder.map(id => folderMap.get(id)).filter(Boolean);
+    Store.folders.forEach(f => { if (!newOrder.includes(f.id)) reordered.push(f); });
+    Store.folders = reordered;
+    Store.saveFolders();
+    App._renderFolderDropdown();
+  }
+};
+
+window.FolderDrag = FolderDrag;
 window.App = App;
 window.Modal = Modal;
 window.Todos = Todos;
