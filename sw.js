@@ -1,4 +1,4 @@
-const CACHE_NAME = 'v9';
+const CACHE_NAME = 'v1'; //Update this to push changes
 
 const PRECACHE_URLS = [
   '/',
