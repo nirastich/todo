@@ -391,6 +391,9 @@ const I18N = {
     w5Tip3D: 'Tap a todo for details, skip, or edit',
     w5Tip4T: 'Install as app',
     w5Tip4D: 'Find it in Settings for the best experience',
+    resetMsgShared: names => `This will permanently delete all your local todos. You have shared folders (${names})! Their server data will be kept for other users unless you choose to delete it.`,
+    resetKeepShared: 'Local reset only',
+    resetDeleteShared: 'Reset & delete server data',
       },
   de: {
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
@@ -561,6 +564,9 @@ const I18N = {
     w5Tip3D: 'Antippen für Details, Überspringen oder Bearbeiten',
     w5Tip4T: 'Als App installieren',
     w5Tip4D: 'Mehr Info in den Einstellungen',
+    resetMsgShared: names => `Alle lokalen Todos werden unwiderruflich gelöscht. Du hast geteilte Ordner (${names})! Deren Serverdaten bleiben für andere Nutzer erhalten, es sei denn du löschst sie.`,
+    resetKeepShared: 'Nur Lokal Zurücksetzen',
+    resetDeleteShared: 'Zurücksetzen & Serverdaten löschen',
   }
 };
 
@@ -1789,10 +1795,21 @@ const App = {
 
     let html = `<button class="folder-menu-item ${!af ? 'active' : ''}" onclick="App.setFolder('');App.closeFolderMenu()">${L('allFolders')}${badge(openCount(null))}</button>`;
     html += `<button class="folder-menu-item ${af === '_none' ? 'active' : ''}" onclick="App.setFolder('_none');App.closeFolderMenu()">${L('noFolder')}${badge(openCount('_none'))}</button>`;
-    Store.folders.filter(f => !Folders.isHidden(f.id)).forEach(f => {
-      const shared = Sync.isFolderShared(f.id) ? '<svg class="folder-shared-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' : '';
-      html += `<button class="folder-menu-item ${af === f.id ? 'active' : ''}" onclick="App.setFolder('${f.id}');App.closeFolderMenu()"><span class="folder-dot" style="background:${f.color}"></span><span class="folder-menu-name">${Util.esc(f.name)}</span>${shared}${badge(openCount(f.id))}</button>`;
-    });
+    const visibleFolders = Store.folders.filter(f => !Folders.isHidden(f.id));
+    const normalFolders = visibleFolders.filter(f => !Folders.isIsolated(f.id));
+    const isolatedFolders = visibleFolders.filter(f => Folders.isIsolated(f.id));
+    const renderFolderItem = (f) => {
+      const isShared = Sync.isFolderShared(f.id);
+      const dot = isShared
+        ? `<svg class="folder-dot-shared" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${f.color}" stroke-width="3" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`
+        : `<span class="folder-dot" style="background:${f.color}"></span>`;
+      return `<button class="folder-menu-item ${af === f.id ? 'active' : ''}" onclick="App.setFolder('${f.id}');App.closeFolderMenu()">${dot}<span class="folder-menu-name">${Util.esc(f.name)}</span>${badge(openCount(f.id))}</button>`;
+    };
+    normalFolders.forEach(f => { html += renderFolderItem(f); });
+    if (isolatedFolders.length) {
+      html += `<div class="folder-menu-divider"><span>${L('isolated').toLowerCase()}</span></div>`;
+      isolatedFolders.forEach(f => { html += renderFolderItem(f); });
+    }
     menu.innerHTML = html;
   },
   
@@ -2486,7 +2503,7 @@ const Settings = {
         </div>`;
       }
       const tags = [isHidden ? L('hide') : '', isIsolated ? L('isolated') : '', isNoSync ? L('noSyncFolder') : '', hasFolderSync ? L('folderSync') : ''].filter(Boolean).join(', ');
-      return `<div class="folder-list-item ${isHidden ? 'dimmed' : ''}" data-folder-id="${f.id}" draggable="true">
+      return `<div class="folder-list-item ${isHidden ? 'dimmed' : ''}" data-folder-id="${f.id}">
         <div class="folder-dot-lg" style="background:${f.color}"></div>
         <div class="folder-list-item-body">
           <div class="folder-list-item-name">${Util.esc(f.name)}</div>
@@ -2765,15 +2782,56 @@ const Settings = {
   },
 
   confirmReset() {
-    Modal.confirm(L('resetTitle'), L('resetMsg'), [
-      { label: L('cancel'), cls: 'btn-outline', action() {} },
-      { label: L('deleteAll'), cls: 'btn-danger', action() {
-        Store.todos = []; Store.folders = [];
-        Store.saveTodos(); Store.saveFolders();
-        Store.settings.activeFolder = null; Store.saveSettings();
-        App.render(); Settings.render();
-      }}
-    ]);
+    const sharedFolderIds = Object.keys(Sync.folderChannels).filter(fid => Sync.folderChannels[fid]?.enabled);
+    const hasShared = sharedFolderIds.length > 0;
+
+    if (hasShared) {
+      const names = sharedFolderIds.map(fid => Folders.getName(fid)).filter(Boolean).join(', ');
+      Modal.confirm(L('resetTitle'), LF('resetMsgShared', names), [
+        { label: L('cancel'), cls: 'btn-outline', action() {} },
+        { label: L('resetKeepShared'), cls: 'btn-danger', action() {
+          if (Sync.main?.enabled) Sync.main.stop();
+          Object.keys(Sync.folderChannels).forEach(fid => {
+            if (Sync.folderChannels[fid]) { Sync.folderChannels[fid].stop(); delete Sync.folderChannels[fid]; }
+          });
+          Store.todos = []; Store.folders = [];
+          Store.saveTodos(); Store.saveFolders();
+          Store.settings.activeFolder = null; Store.saveSettings();
+          Store.hiddenFolders = []; Store.saveHidden();
+          Store.isolatedFolders = []; Store.saveIsolated();
+          Store.noSyncFolders = []; Store.saveNoSync();
+          App.render(); Settings.render();
+        }},
+        { label: L('resetDeleteShared'), cls: 'btn-danger', action: async () => {
+          for (const fid of Object.keys(Sync.folderChannels)) {
+            if (Sync.folderChannels[fid]?.enabled) await Sync.folderChannels[fid].deleteServer();
+            delete Sync.folderChannels[fid];
+          }
+          if (Sync.main?.enabled) await Sync.main.deleteServer();
+          Store.todos = []; Store.folders = [];
+          Store.saveTodos(); Store.saveFolders();
+          Store.settings.activeFolder = null; Store.saveSettings();
+          Store.hiddenFolders = []; Store.saveHidden();
+          Store.isolatedFolders = []; Store.saveIsolated();
+          Store.noSyncFolders = []; Store.saveNoSync();
+          App.render(); Settings.render();
+        }}
+      ]);
+    } else {
+      Modal.confirm(L('resetTitle'), L('resetMsg'), [
+        { label: L('cancel'), cls: 'btn-outline', action() {} },
+        { label: L('deleteAll'), cls: 'btn-danger', action() {
+          if (Sync.main?.enabled) Sync.main.stop();
+          Store.todos = []; Store.folders = [];
+          Store.saveTodos(); Store.saveFolders();
+          Store.settings.activeFolder = null; Store.saveSettings();
+          Store.hiddenFolders = []; Store.saveHidden();
+          Store.isolatedFolders = []; Store.saveIsolated();
+          Store.noSyncFolders = []; Store.saveNoSync();
+          App.render(); Settings.render();
+        }}
+      ]);
+    }
   },
 
   installPwa() {
@@ -3362,7 +3420,8 @@ const FolderDrag = {
     }
     this._indicator = ind;
 
-    list.querySelectorAll('.folder-list-item[data-folder-id][draggable]').forEach(el => {
+    list.querySelectorAll('.folder-list-item[data-folder-id]:not(.editing)').forEach(el => {
+      if (!('ontouchstart' in window)) el.setAttribute('draggable', 'true');
       el.addEventListener('dragstart', e => this._onDragStart(e));
       el.addEventListener('dragend', e => this._onDragEnd(e));
       el.addEventListener('touchstart', e => this._onTouchStart(e), { passive: false });
@@ -3381,7 +3440,7 @@ const FolderDrag = {
 
   _getItems() {
     const list = document.getElementById('folderSortList');
-    return list ? [...list.querySelectorAll('.folder-list-item[data-folder-id][draggable]')] : [];
+    return list ? [...list.querySelectorAll('.folder-list-item[data-folder-id]:not(.editing)')] : [];
   },
 
   _calcInsert(clientY) {
