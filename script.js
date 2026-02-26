@@ -394,6 +394,18 @@ const I18N = {
     resetMsgShared: names => `This will permanently delete all your local todos. You have shared folders (${names})! Their server data will be kept for other users unless you choose to delete it.`,
     resetKeepShared: 'Local reset only',
     resetDeleteShared: 'Reset & delete server data',
+    loose: 'Flexible',
+    looseMonthlyDesc: 'Any day, once per month until done',
+    looseYearlyDesc: 'Any day, once per year until done',
+    anyMonth: 'Any month',
+    looseMonthly: '~Monthly',
+    looseYearly: '~Yearly',
+    looseYearlyMonth: m => `~Yearly in ${MONTHS_EN[m]}`,
+    every: 'Every',
+    weeksUnit: 'week(s)',
+    monthsUnit: 'month(s)',
+    everyNWeeks: n => `Every ${n} weeks`,
+    everyNMonths: n => `Every ${n} months`,
       },
   de: {
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
@@ -567,6 +579,18 @@ const I18N = {
     resetMsgShared: names => `Alle lokalen Todos werden unwiderruflich gelöscht. Du hast geteilte Ordner (${names})! Deren Serverdaten bleiben für andere Nutzer erhalten, es sei denn du löschst sie.`,
     resetKeepShared: 'Nur Lokal Zurücksetzen',
     resetDeleteShared: 'Zurücksetzen & Serverdaten löschen',
+    loose: 'Flexibel',
+    looseMonthlyDesc: 'Beliebiger Tag, einmal im Monat bis erledigt',
+    looseYearlyDesc: 'Beliebiger Tag, einmal im Jahr bis erledigt',
+    anyMonth: 'Beliebiger Monat',
+    looseMonthly: '~Monatlich',
+    looseYearly: '~Jährlich',
+    looseYearlyMonth: m => `~Jährlich im ${MONTHS_DE[m]}`,
+    every: 'Alle',
+    weeksUnit: 'Woche(n)',
+    monthsUnit: 'Monat(e)',
+    everyNWeeks: n => `Alle ${n} Wochen`,
+    everyNMonths: n => `Alle ${n} Monate`,
   }
 };
 
@@ -690,17 +714,37 @@ const Todos = {
     const dow = date.getDay();
     switch (r.frequency) {
       case 'daily': return true;
-      case 'weekly':
+      case 'weekly': {
+        const interval = r.interval || 1;
+        if (interval > 1) {
+          const w = Util.weeksDiff(Util.parseDate(r.startDate), date);
+          if (((w % interval) + interval) % interval !== 0) return false;
+        }
         if (r.spanEnabled) return Util.inSpan(dow, r.spanStart, r.spanEnd);
         return (r.days || []).includes(dow);
+      }
       case 'biweekly': {
         const w = Util.weeksDiff(Util.parseDate(r.startDate), date);
         if (((w % 2) + 2) % 2 !== 0) return false;
         if (r.spanEnabled) return Util.inSpan(dow, r.spanStart, r.spanEnd);
         return (r.days || []).includes(dow);
       }
-      case 'monthly': return date.getDate() === r.dayOfMonth;
-      case 'yearly':  return date.getMonth() === r.month && date.getDate() === r.dayOfMonth;
+      case 'monthly': {
+        const interval = r.interval || 1;
+        if (interval > 1) {
+          const start = Util.parseDate(r.startDate);
+          const md = (date.getFullYear() - start.getFullYear()) * 12 + (date.getMonth() - start.getMonth());
+          if (((md % interval) + interval) % interval !== 0) return false;
+        }
+        if (r.loose) return true;
+        return date.getDate() === r.dayOfMonth;
+      }
+      case 'yearly':
+        if (r.loose) {
+          if (r.month !== undefined && r.month !== null && r.month >= 0) return date.getMonth() === r.month;
+          return true;
+        }
+        return date.getMonth() === r.month && date.getDate() === r.dayOfMonth;
     }
     return false;
   },
@@ -723,6 +767,52 @@ const Todos = {
     if (!this._isSpan(todo)) return false;
     return this.spanCompletionCount(todo, ds) >= this.spanTarget(todo);
   },
+  
+  _isLoose(todo) {
+    return todo.type === 'recurring' && todo.recurrence?.loose;
+  },
+
+  _loosePeriodKey(ds, r) {
+    const d = Util.parseDate(ds);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (r.frequency === 'monthly') {
+      const interval = r.interval || 1;
+      if (interval > 1 && r.startDate) {
+        const start = Util.parseDate(r.startDate);
+        const md = (d.getFullYear() - start.getFullYear()) * 12 + (d.getMonth() - start.getMonth());
+        return `m-${Math.floor(md / interval)}`;
+      }
+      return ym;
+    }
+    if (r.frequency === 'yearly') {
+      if (r.month !== undefined && r.month !== null && r.month >= 0) return ym;
+      return `${d.getFullYear()}`;
+    }
+    return ds;
+  },
+
+  isLooseDoneInPeriod(todo, ds) {
+    if (!todo.completedDates?.length) return false;
+    const r = todo.recurrence;
+    const key = this._loosePeriodKey(ds, r);
+    return todo.completedDates.some(cd => this._loosePeriodKey(cd, r) === key);
+  },
+  
+  _looseCooldownDays(r) {
+    if (r.frequency === 'monthly') return Math.round((r.interval || 1) * 30 * 0.75);
+    return 237;
+  },
+
+  isLooseOnCooldown(todo, ds) {
+    if (!todo.completedDates?.length) return false;
+    const r = todo.recurrence;
+    const cooldown = this._looseCooldownDays(r);
+    const current = Util.parseDate(ds);
+    const sorted = [...todo.completedDates].sort();
+    const last = Util.parseDate(sorted[sorted.length - 1]);
+    const diff = Math.floor((current - last) / 864e5);
+    return diff >= 0 && diff < cooldown;
+  },
 
   _isRangeCount(todo) { return todo.type === 'range' && (todo.rangeCount || 0) > 0; },
   rangeTarget(todo) { return todo.rangeCount || 0; },
@@ -739,6 +829,7 @@ const Todos = {
     if (!this.isOnDate(todo, ds)) return false;
     if (this._isSpan(todo) && this.isSpanFullyDone(todo, ds)) return (todo.completedDates || []).includes(ds);
     if (this._isRangeCount(todo) && this.isRangeFullyDone(todo)) return (todo.completedDates || []).includes(ds);
+    if (this._isLoose(todo) && (this.isLooseDoneInPeriod(todo, ds) || this.isLooseOnCooldown(todo, ds))) return (todo.completedDates || []).includes(ds);
     return true;
   },
 
@@ -792,14 +883,28 @@ const Todos = {
     const countSuffix = r.spanEnabled ? ` (${r.spanCount || 1}×)` : '';
     switch (r.frequency) {
       case 'daily':    return L('everyDay');
-      case 'weekly':   return r.spanEnabled
-        ? `${L('weeklyOn')} ${L('dayNames')[r.spanStart]}–${L('dayNames')[r.spanEnd]}${countSuffix}`
-        : `${L('weeklyOn')}: ${dayList}`;
+      case 'weekly': {
+        const interval = r.interval || 1;
+        const prefix = interval === 1 ? L('weeklyOn') : LF('everyNWeeks', interval);
+        return r.spanEnabled
+          ? `${prefix} ${L('dayNames')[r.spanStart]}–${L('dayNames')[r.spanEnd]}${countSuffix}`
+          : `${prefix}: ${dayList}`;
+      }
       case 'biweekly': return r.spanEnabled
         ? `${L('biweeklyOn')} ${L('dayNames')[r.spanStart]}–${L('dayNames')[r.spanEnd]}${countSuffix}`
         : `${L('biweeklyOn')}: ${dayList}`;
-      case 'monthly':  return LF('monthlyOn', r.dayOfMonth);
-      case 'yearly':   return LF('yearlyOn', r.month, r.dayOfMonth);
+      case 'monthly': {
+        const mi = r.interval || 1;
+        if (r.loose) return mi > 1 ? LF('everyNMonths', mi) + ` (${L('loose').toLowerCase()})` : L('looseMonthly');
+        if (mi > 1) return LF('everyNMonths', mi) + `, ${ordinal(r.dayOfMonth)}`;
+        return LF('monthlyOn', r.dayOfMonth);
+      }
+      case 'yearly':
+        if (r.loose) {
+          if (r.month !== undefined && r.month !== null && r.month >= 0) return LF('looseYearlyMonth', r.month);
+          return L('looseYearly');
+        }
+        return LF('yearlyOn', r.month, r.dayOfMonth);
     }
     return L('recurring');
   }
@@ -2104,12 +2209,12 @@ const AddForm = {
     }
     else {
       const r = t.recurrence || {};
-      const freq = r.frequency || 'weekly';
+      const freq = r.frequency === 'biweekly' ? 'weekly' : (r.frequency || 'weekly');
       c.innerHTML = `
         <div class="form-group">
           <label class="form-label">${L('frequency')}</label>
           <div class="chip-group" id="freqTabs">
-            ${['daily','weekly','biweekly','monthly','yearly'].map(f =>
+            ${['daily','weekly','monthly','yearly'].map(f =>
               `<button class="chip chip-sm ${freq === f ? 'active' : ''}" data-freq="${f}">${L(f)}</button>`
             ).join('')}
           </div>
@@ -2138,13 +2243,18 @@ const AddForm = {
     if (freq === 'daily') {
       c.innerHTML = `<p class="form-note">${L('repeatsDaily')}</p>`;
     }
-    else if (freq === 'weekly' || freq === 'biweekly') {
+    else if (freq === 'weekly') {
       const days = r.days || [];
       const span = r.spanEnabled || false;
-      const label = freq === 'biweekly' ? L('everyOtherWeek') : L('everyWeek');
+      const interval = r.frequency === 'biweekly' ? 2 : (r.interval || 1);
       c.innerHTML = `
         <div class="form-group">
-          <label class="form-label">${L('days')} (${label})</label>
+          <div class="interval-row">
+            <span class="interval-label">${L('every')}</span>
+            <input class="form-input form-input-narrow" type="number" id="f_weekInterval" min="1" max="52" value="${interval}">
+            <span class="interval-label">${L('weeksUnit')}</span>
+          </div>
+          <label class="form-label" style="margin-top:12px">${L('days')}</label>
           <div class="day-chips" id="dayChips" ${span ? 'style="display:none"' : ''}>
             ${[0,1,2,3,4,5,6].map(d =>
               `<button class="day-chip ${days.includes(d) ? 'active' : ''}" data-day="${d}">${L('dayNames')[d]}</button>`
@@ -2169,17 +2279,48 @@ const AddForm = {
       c.querySelectorAll('.day-chip').forEach(ch => { ch.onclick = () => ch.classList.toggle('active'); });
     }
     else if (freq === 'monthly') {
-      c.innerHTML = `<div class="form-group"><label class="form-label">${L('dayOfMonth')}</label>
-        <select class="form-input form-input-narrow" id="f_dayOfMonth">
-          ${Array.from({length: 31}, (_, i) => i + 1).map(d => `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${ordinal(d)}</option>`).join('')}
-        </select></div>`;
+      const loose = r.loose || false;
+      const interval = r.interval || 1;
+      c.innerHTML = `<div class="form-group">
+        <div class="interval-row">
+          <span class="interval-label">${L('every')}</span>
+          <input class="form-input form-input-narrow" type="number" id="f_monthInterval" min="1" max="36" value="${interval}">
+          <span class="interval-label">${L('monthsUnit')}</span>
+        </div>
+        <div id="looseFixedFields" ${loose ? 'style="display:none"' : ''}>
+          <label class="form-label" style="margin-top:12px">${L('dayOfMonth')}</label>
+          <select class="form-input form-input-narrow" id="f_dayOfMonth">
+            ${Array.from({length: 31}, (_, i) => i + 1).map(d => `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${ordinal(d)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="toggle-row" style="margin-top:12px">
+          <div class="toggle-track ${loose ? 'on' : ''}" id="looseToggle" onclick="AddForm.toggleLoose()"><div class="toggle-thumb"></div></div>
+          <div><span class="toggle-label">${L('loose')}</span><div class="toggle-desc">${L('looseMonthlyDesc')}</div></div>
+        </div>
+      </div>`;
     }
     else if (freq === 'yearly') {
-      c.innerHTML = `<div class="form-row">
-        <div class="form-group"><label class="form-label">${L('month')}</label>
-          <select class="form-input" id="f_yearMonth">${L('monthNames').map((m, i) => `<option value="${i}" ${r.month === i ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-        <div class="form-group"><label class="form-label">${L('day')}</label>
-          <select class="form-input" id="f_yearDay">${Array.from({length: 31}, (_, i) => i + 1).map(d => `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+      const loose = r.loose || false;
+      const monthVal = (r.month !== undefined && r.month !== null && r.month >= 0) ? r.month : -1;
+      c.innerHTML = `<div class="form-group">
+        <div class="form-row" style="margin-top:12px">
+          <div class="form-group"><label class="form-label">${L('month')}</label>
+            <select class="form-input" id="f_yearMonth">
+              ${loose ? `<option value="-1" ${monthVal < 0 ? 'selected' : ''}>${L('anyMonth')}</option>` : ''}
+              ${L('monthNames').map((m, i) => `<option value="${i}" ${monthVal === i ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" id="yearlyDayField" ${loose ? 'style="display:none"' : ''}>
+            <label class="form-label">${L('day')}</label>
+            <select class="form-input" id="f_yearDay">
+              ${Array.from({length: 31}, (_, i) => i + 1).map(d => `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${d}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="toggle-row" style="margin-top:-8px">
+          <div class="toggle-track ${loose ? 'on' : ''}" id="looseToggle" onclick="AddForm.toggleLoose()"><div class="toggle-thumb"></div></div>
+          <div><span class="toggle-label">${L('loose')}</span><div class="toggle-desc">${L('looseYearlyDesc')}</div></div>
+        </div>
       </div>`;
     }
   },
@@ -2191,6 +2332,27 @@ const AddForm = {
     const on = toggle.classList.toggle('on');
     fields.style.display = on ? 'block' : 'none';
     if (chips) chips.style.display = on ? 'none' : 'flex';
+  },
+  
+  toggleLoose() {
+    const toggle = document.getElementById('looseToggle');
+    const on = toggle.classList.toggle('on');
+    const fixed = document.getElementById('looseFixedFields');
+    if (fixed) fixed.style.display = on ? 'none' : '';
+    const yearlyDay = document.getElementById('yearlyDayField');
+    if (yearlyDay) yearlyDay.style.display = on ? 'none' : '';
+    const yearMonth = document.getElementById('f_yearMonth');
+    if (yearMonth) {
+      const hasAny = yearMonth.querySelector('option[value="-1"]');
+      if (on && !hasAny) {
+        const opt = document.createElement('option');
+        opt.value = '-1'; opt.textContent = L('anyMonth');
+        yearMonth.prepend(opt);
+      } else if (!on && hasAny) {
+        if (yearMonth.value === '-1') yearMonth.value = '0';
+        hasAny.remove();
+      }
+    }
   },
   
   toggleUntilDone() {
@@ -2260,7 +2422,8 @@ const AddForm = {
       const freq = document.querySelector('#freqTabs .chip.active')?.dataset.freq || 'weekly';
       const rec = { frequency: freq, startDate: document.getElementById('f_recStart').value };
       rec.endDate = document.getElementById('f_recEnd').value || null;
-      if (freq === 'weekly' || freq === 'biweekly') {
+      if (freq === 'weekly') {
+        rec.interval = Math.max(1, parseInt(document.getElementById('f_weekInterval').value) || 1);
         rec.spanEnabled = document.getElementById('spanToggle')?.classList.contains('on') || false;
         if (rec.spanEnabled) {
           rec.spanStart = parseInt(document.getElementById('f_spanStart').value);
@@ -2271,10 +2434,18 @@ const AddForm = {
           rec.days = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
         }
       } else if (freq === 'monthly') {
-        rec.dayOfMonth = parseInt(document.getElementById('f_dayOfMonth').value);
+        rec.interval = Math.max(1, parseInt(document.getElementById('f_monthInterval').value) || 1);
+        rec.loose = document.getElementById('looseToggle')?.classList.contains('on') || false;
+        if (!rec.loose) rec.dayOfMonth = parseInt(document.getElementById('f_dayOfMonth').value);
       } else if (freq === 'yearly') {
-        rec.month = parseInt(document.getElementById('f_yearMonth').value);
-        rec.dayOfMonth = parseInt(document.getElementById('f_yearDay').value);
+        rec.loose = document.getElementById('looseToggle')?.classList.contains('on') || false;
+        if (rec.loose) {
+          const mv = parseInt(document.getElementById('f_yearMonth').value);
+          if (mv >= 0) rec.month = mv;
+        } else {
+          rec.month = parseInt(document.getElementById('f_yearMonth').value);
+          rec.dayOfMonth = parseInt(document.getElementById('f_yearDay').value);
+        }
       }
       todo.recurrence = rec;
     }
