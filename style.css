@@ -1544,6 +1544,32 @@ select.form-input {
   flex-shrink: 0;
 }
 
+.wm-folder-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 14px;
+}
+
+.wm-folder-divider::before,
+.wm-folder-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.wm-folder-divider span {
+  font-size: 0.65rem;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.wm-folder-dot-shared {
+  flex-shrink: 0;
+}
+
 .wm-feat-list {
   text-align: left;
   margin-top: 16px;
