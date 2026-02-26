@@ -1444,6 +1444,23 @@ const Sync = {
     console.log('%c[Sync] Debug disabled', 'color:#EF4444;font-weight:bold');
   },
 
+  _saveKnownRemoteFolderIds() {
+    try {
+      if (this._lastKnownRemoteFolderIds) {
+        localStorage.setItem('todo_sync_known_folders', JSON.stringify([...this._lastKnownRemoteFolderIds]));
+      } else {
+        localStorage.removeItem('todo_sync_known_folders');
+      }
+    } catch (e) {}
+  },
+
+  _loadKnownRemoteFolderIds() {
+    try {
+      const raw = localStorage.getItem('todo_sync_known_folders');
+      if (raw) this._lastKnownRemoteFolderIds = new Set(JSON.parse(raw));
+    } catch (e) {}
+  },
+
   _getMainPayload() {
     const noSync = new Set(Store.noSyncFolders || []);
     return {
@@ -1471,6 +1488,7 @@ const Sync = {
       );
       Store.folders = [...data.folders.filter(f => !noSync.has(f.id)), ...localNoSyncFolders, ...localOnlyFolders];
       this._lastKnownRemoteFolderIds = remoteFolderIds;
+      this._saveKnownRemoteFolderIds();
       data.folders.forEach(f => { if (f._syncKey) folderSyncKeys[f.id] = f._syncKey; });
       Store.folders.forEach(f => { delete f._syncKey; });
     }
@@ -1547,8 +1565,10 @@ const Sync = {
       getPayload: () => this._getMainPayload(),
       applyPayload: (data) => this._applyMainPayload(data),
       onRender: () => App.render(),
-      onPushSuccess: (payload) => { this._lastKnownRemoteFolderIds = new Set((payload.folders || []).map(f => f.id)); }
+      onPushSuccess: (payload) => { this._lastKnownRemoteFolderIds = new Set((payload.folders || []).map(f => f.id)); this._saveKnownRemoteFolderIds(); }
     });
+
+    this._loadKnownRemoteFolderIds();
 
     const mainState = this.main.loadState();
     if (mainState?.fullSyncKey) {
@@ -1688,6 +1708,8 @@ const Sync = {
 
   stop() {
     if (this.main) this.main.stop();
+    this._lastKnownRemoteFolderIds = null;
+    this._saveKnownRemoteFolderIds();
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
