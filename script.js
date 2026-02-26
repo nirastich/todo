@@ -368,10 +368,14 @@ const I18N = {
     w2Ex2: 'Read 3 chapters',
     w2Ex3: 'Water plants',
     w2Ex4: 'Go for a run',
+    w2Ex5: 'Clean bathroom',
+    w2EveryNWeeks: 'Every 2 weeks',
+    w2Loose: '~Monthly',
     w3Title: 'Organize with Folders',
     w3Ex1: 'Work',
     w3Ex2: 'Personal',
     w3Ex3: 'Shared',
+    w3Ex4: 'Gym',
     w3Feat1: 'Color-coded',
     w3Feat2: 'Hide or isolate per device',
     w3Feat3: 'Share folders with others',
@@ -553,10 +557,14 @@ const I18N = {
     w2Ex2: '3 Kapitel lesen',
     w2Ex3: 'Pflanzen gießen',
     w2Ex4: 'Laufen gehen',
+    w2Ex5: 'Bad putzen',
+    w2EveryNWeeks: 'Alle 2 Wochen',
+    w2Loose: '~Monatlich',
     w3Title: 'Ordner & Organisation',
     w3Ex1: 'Arbeit',
     w3Ex2: 'Privat',
     w3Ex3: 'Geteilt',
+    w3Ex4: 'Fitness',
     w3Feat1: 'Farblich markiert',
     w3Feat2: 'Pro Gerät aus- oder einblenden',
     w3Feat3: 'Ordner mit anderen teilen',
@@ -3265,7 +3273,7 @@ const Welcome = {
               <div class="wm-todo-check"></div>
               <div class="wm-todo-body">
                 <div class="wm-todo-title">${L('w2Ex3')}</div>
-                <div class="wm-todo-meta">${L('w2Recurring')} · ${L('dayNames')[1]}, ${L('dayNames')[4]}</div>
+                <div class="wm-todo-meta">${L('w2EveryNWeeks')} · ${L('dayNames')[1]}, ${L('dayNames')[4]}</div>
               </div>
             </div>
             <div class="wm-todo">
@@ -3275,11 +3283,18 @@ const Welcome = {
                 <div class="wm-todo-meta">${L('w2Span')} · ${L('dayNames')[5]} ${L('to')} ${L('dayNames')[0]} · 2/3</div>
               </div>
             </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex5')}</div>
+                <div class="wm-todo-meta">${L('w2Loose')}</div>
+              </div>
+            </div>
           </div>
         </div>`;
       },
 
-      // Page 3: Folders (mock folder list)
+      // Page 3: Folders (mock folder list with isolated grouping)
       () => `<div class="welcome-page">
         <h2 class="welcome-title">${L('w3Title')}</h2>
         <div class="wm-folder-list">
@@ -3294,10 +3309,15 @@ const Welcome = {
             <span class="wm-folder-count">5</span>
           </div>
           <div class="wm-folder">
-            <span class="wm-folder-dot" style="background:#FB923C"></span>
+            <svg class="wm-folder-dot-shared" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FB923C" stroke-width="3" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <span class="wm-folder-name">${L('w3Ex3')}</span>
             <span class="wm-folder-count">3</span>
-            <svg class="wm-folder-shared" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div class="wm-folder-divider"><span>${L('isolated').toLowerCase()}</span></div>
+          <div class="wm-folder">
+            <span class="wm-folder-dot" style="background:#A78BFA"></span>
+            <span class="wm-folder-name">${L('w3Ex4')}</span>
+            <span class="wm-folder-count">2</span>
           </div>
         </div>
         <div class="wm-feat-list">
