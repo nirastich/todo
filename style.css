@@ -712,6 +712,18 @@ select.form-input {
 .span-count-row input { width: 60px; text-align: center; }
 .span-count-label { font-size: 0.82rem; color: var(--text-2); }
 
+.interval-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.interval-label {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
 /* --- Buttons --- */
 
 .btn {
