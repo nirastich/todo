@@ -74,9 +74,6 @@ function listDataFiles(string $dataDir): array {
     return $files;
 }
 
-// Changed: instead of evicting old data under pressure (which an attacker could
-// exploit by flooding new IDs), we simply check capacity before accepting a new
-// file and reject the write if limits are exceeded.
 function isStorageAvailable(string $dataDir, int $maxFiles, int $maxBytes): bool {
     $files = listDataFiles($dataDir);
     $count = count($files);
@@ -162,8 +159,6 @@ if (mt_rand(1, 100) === 1) {
     }
 }
 
-// Periodically purge sync data files that haven't been touched in 90 days.
-// This is time-based (not pressure-based) so it cannot be triggered by an attacker.
 if (mt_rand(1, 200) === 1) {
     foreach (listDataFiles($dataDir) as $df) {
         $mt = @filemtime($df);
@@ -187,8 +182,6 @@ switch ($op) {
             respond(413, ['error' => 'payload too large']);
         }
 
-        // Changed: require exactly 64 hex chars or reject — no silent fallback to
-        // empty string, which previously allowed a malformed token to bypass validation.
         $incomingDeleteToken = '';
         if (isset($input['deleteToken'])) {
             if (!is_string($input['deleteToken'])) respond(400, ['error' => 'invalid deleteToken']);
@@ -205,9 +198,6 @@ switch ($op) {
             $incomingWriteToken = $wt;
         }
 
-        // Changed: check storage capacity *before* creating a new file so that an
-        // attacker cannot flood new IDs and cause the old eviction logic to delete
-        // legitimate users' data.
         if (!file_exists($file) && !isStorageAvailable($dataDir, $MAX_FILES, $MAX_BYTES)) {
             respond(507, ['error' => 'storage full']);
         }
