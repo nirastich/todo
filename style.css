@@ -264,6 +264,32 @@ button { cursor: pointer; border: none; background: none; color: inherit; }
 
 .folder-tag .folder-dot { width: 6px; height: 6px; }
 
+.folder-dot-shared {
+  flex-shrink: 0;
+}
+
+.folder-menu-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.folder-menu-divider::before,
+.folder-menu-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.folder-menu-divider span {
+  font-size: 0.65rem;
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
 /* --- Folder list (settings) --- */
 
 .folder-list-item {
