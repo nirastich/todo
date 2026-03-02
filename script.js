@@ -1880,6 +1880,8 @@ const App = {
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
     });
     DragSort.init();
+    SwipeNav.init();
+    ModalSwipe.init();
     Welcome.init();
   },
 
@@ -3761,6 +3763,143 @@ const FolderDrag = {
   }
 };
 
+const SwipeNav = {
+  _startX: 0,
+  _startY: 0,
+  _startTime: 0,
+
+  init() {
+    document.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1) return;
+      this._startX = e.touches[0].clientX;
+      this._startY = e.touches[0].clientY;
+      this._startTime = Date.now();
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+      if (DragSort._dragging || FolderDrag._dragging) return;
+      if (document.querySelector('.modal.open, .confirm-overlay.open')) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - this._startX;
+      const dy = t.clientY - this._startY;
+      const dt = Date.now() - this._startTime;
+      if (dt > 400 || Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
+      App.nav(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
+};
+
+const ModalSwipe = {
+  _startY: 0,
+  _startX: 0,
+  _tracking: false,
+  _modal: null,
+  _name: null,
+  _scrollEl: null,
+
+  init() {
+    document.addEventListener('touchstart', e => this._onStart(e), { passive: true });
+    document.addEventListener('touchmove', e => this._onMove(e), { passive: false });
+    document.addEventListener('touchend', e => this._onEnd(e));
+    document.addEventListener('touchcancel', () => this._cleanup());
+  },
+
+  _getOpenModal() {
+    for (const id of ['settingsModal', 'listModal', 'addModal', 'detailModal', 'welcomeModal', 'confirmDialog']) {
+      const el = document.getElementById(id);
+      if (el?.classList.contains('open')) {
+        return { el, name: id === 'confirmDialog' ? 'confirm' : id.replace('Modal', '') };
+      }
+    }
+    return null;
+  },
+
+  _findScrollParent(target, modal) {
+    let el = target;
+    while (el && el !== modal) {
+      const s = getComputedStyle(el);
+      if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight) return el;
+      el = el.parentElement;
+    }
+    return modal;
+  },
+
+  _onStart(e) {
+    if (e.touches.length !== 1) return;
+    if (FolderDrag._dragging || DragSort._dragging) return;
+    const m = this._getOpenModal();
+    if (!m) return;
+    this._scrollEl = this._findScrollParent(e.target, m.el);
+    if (this._scrollEl.scrollTop > 5) return;
+    this._startY = e.touches[0].clientY;
+    this._startX = e.touches[0].clientX;
+    this._modal = m.el;
+    this._name = m.name;
+    this._tracking = false;
+  },
+
+  _onMove(e) {
+    if (!this._modal) return;
+    if (FolderDrag._dragging || DragSort._dragging) { this._cleanup(); return; }
+    const dy = e.touches[0].clientY - this._startY;
+    const dx = Math.abs(e.touches[0].clientX - this._startX);
+    if (!this._tracking) {
+      if (dy < -5 || dx > Math.abs(dy)) { this._reset(); return; }
+      if (this._scrollEl && this._scrollEl.scrollTop > 5) { this._reset(); return; }
+      if (dy > 5) e.preventDefault();
+      if (dy > 20) this._tracking = true;
+      else return;
+    }
+    if (this._scrollEl && this._scrollEl.scrollTop > 0) { this._snapBack(); this._reset(); return; }
+    if (dy > 0) {
+      e.preventDefault();
+      const d = Math.min(dy, 300);
+      this._modal.style.transform = `translateY(${d}px)`;
+      this._modal.style.transition = 'none';
+    }
+  },
+
+  _onEnd(e) {
+    if (!this._modal || !this._tracking) { this._cleanup(); return; }
+    const dy = e.changedTouches[0].clientY - this._startY;
+    const modal = this._modal;
+    const name = this._name;
+    if (dy > 120) {
+      modal.style.transition = 'transform 0.2s ease-out';
+      modal.style.transform = 'translateY(100vh)';
+      setTimeout(() => {
+        if (name === 'confirm') document.getElementById('confirmDialog')?.classList.remove('open');
+        else if (name === 'welcome') Welcome.close();
+        else Modal.close(name);
+        modal.style.transform = '';
+        modal.style.transition = '';
+      }, 200);
+    } else {
+      this._snapBack();
+    }
+    this._reset();
+  },
+
+  _snapBack() {
+    if (!this._modal) return;
+    this._modal.style.transition = 'transform 0.2s ease-out';
+    this._modal.style.transform = '';
+    setTimeout(() => { if (this._modal) this._modal.style.transition = ''; }, 200);
+  },
+
+  _cleanup() {
+    if (this._modal && this._tracking) this._snapBack();
+    this._reset();
+  },
+
+  _reset() {
+    this._modal = null;
+    this._name = null;
+    this._scrollEl = null;
+    this._tracking = false;
+  }
+};
+
 window.FolderDrag = FolderDrag;
 window.App = App;
 window.Modal = Modal;
@@ -3775,5 +3914,7 @@ window.Folders = Folders;
 window.Store = Store;
 window.Util = Util;
 window.SyncChannel = SyncChannel;
+window.SwipeNav = SwipeNav;
+window.ModalSwipe = ModalSwipe;
 window.Welcome = Welcome;
 App.init();
