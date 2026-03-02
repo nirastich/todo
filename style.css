@@ -533,7 +533,11 @@ button { cursor: pointer; border: none; background: none; color: inherit; }
   will-change: transform;
 }
 
-.modal.open { transform: translateY(0); }
+.modal.open { 
+  transform: translateY(0); 
+  overscroll-behavior: contain;
+}
+
 
 .modal-header {
   position: sticky;
@@ -966,7 +970,11 @@ select.form-input {
   transition: opacity 0.2s ease;
 }
 
-.confirm-overlay.open { opacity: 1; pointer-events: auto; }
+.confirm-overlay.open { 
+  opacity: 1; 
+  pointer-events: auto;
+  overscroll-behavior: contain;
+}
 
 .confirm-box {
   background: var(--surface);
