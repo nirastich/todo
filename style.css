@@ -1280,7 +1280,8 @@ select.form-input {
 @media (max-width: 480px) {
   .header { padding: 10px 12px; }
   .main { padding: 6px 12px; }
-  .date-display { width: 50px; font-size: 0.9rem; padding: 6px 2px; }
+  .date-display { width: 50px; font-size: 0.9rem; padding: 6px 2px; overflow: visible; }
+  .date-sub { width: max-content; position: relative; left: 50%; transform: translateX(-50%); white-space: nowrap; }
   .btn-add span { display: none; }
   .day-chip { width: 36px; height: 36px; font-size: 0.72rem; }
   .modal-body { padding: 14px; }
