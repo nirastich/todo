@@ -2942,7 +2942,14 @@ const Settings = {
   },
 
   setLang(lang) { Store.settings.lang = lang; Store.saveSettings(); App.render(); this.render(); },
-  setAccent(color) { Store.settings.accent = color; Store.saveSettings(); App.applyTheme(); this.render(); },
+  setAccent(color) {
+    Store.settings.accent = color;
+    Store.saveSettings();
+    App.applyTheme();
+    document.querySelectorAll('.color-swatch').forEach(el => {
+      el.classList.toggle('active', el.style.background === color);
+    });
+  },
 
   export() {
     const data = { version: 1, exported: new Date().toISOString(), todos: Store.todos, folders: Store.folders, settings: Store.settings };
@@ -3159,6 +3166,45 @@ const Settings = {
     ]);
   },
 
+  _trimTodoDates(todo, today) {
+    if (todo.skippedDates?.length) {
+      todo.skippedDates = todo.skippedDates.filter(d => d >= today);
+    }
+    if (!todo.completedDates?.length) return;
+    if (todo.type === 'single') {
+      todo.completedDates = todo.completedDates.filter(d => d === todo.date);
+      return;
+    }
+    if (todo.type === 'range') {
+      todo.completedDates = todo.completedDates.filter(d =>
+        d >= (todo.startDate || today) && (!todo.endDate || d <= todo.endDate)
+      );
+      return;
+    }
+    if (todo.type === 'recurring') {
+      const r = todo.recurrence;
+      if (!r) return;
+      let days;
+      if (r.loose && r.frequency === 'yearly') {
+        days = 300;
+      } else if (r.loose) {
+        days = 60;
+      } else if (r.frequency === 'yearly') {
+        days = 400;
+      } else if (r.frequency === 'monthly') {
+        days = (r.interval || 1) * 32;
+      } else if (r.spanEnabled) {
+        days = (r.frequency === 'biweekly' ? 2 : (r.interval || 1)) * 7 * 2;
+      } else {
+        days = 14;
+      }
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      const cutoffStr = Util.dateStr(cutoff);
+      todo.completedDates = todo.completedDates.filter(d => d >= cutoffStr);
+    }
+  },
+
   _runCleanup(today) {
     Store.todos = Store.todos.filter(t => {
       if (t.type === 'single' && t.date < today) return false;
@@ -3167,15 +3213,7 @@ const Settings = {
       if (t.type === 'recurring' && t.recurrence?.endDate && t.recurrence.endDate < today) return false;
       return true;
     });
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 56);
-    const cutoffStr = Util.dateStr(cutoff);
-    Store.todos.forEach(t => {
-      if (t.skippedDates?.length) {
-        t.skippedDates = t.skippedDates.filter(d => d >= cutoffStr);
-      }
-      if (t.type !== 'recurring' || !t.completedDates?.length) return;
-      t.completedDates = t.completedDates.filter(d => d >= cutoffStr);
-    });
+    Store.todos.forEach(t => Settings._trimTodoDates(t, today));
     Store.saveTodos(); App.render(); Settings.render();
   }
 };
