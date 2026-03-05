@@ -3168,7 +3168,8 @@ const Settings = {
 
   _trimTodoDates(todo, today) {
     if (todo.skippedDates?.length) {
-      todo.skippedDates = todo.skippedDates.filter(d => d >= today);
+      const skip = new Date(); skip.setDate(skip.getDate() - 3);
+      todo.skippedDates = todo.skippedDates.filter(d => d >= Util.dateStr(skip));
     }
     if (!todo.completedDates?.length) return;
     if (todo.type === 'single') {
