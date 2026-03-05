@@ -227,7 +227,9 @@ const I18N = {
     add: 'Add', allTodos: 'All Todos', settings: 'Settings', todoDetails: 'Todo Details',
     addTodo: 'Add Todo', editTodo: 'Edit Todo', title: 'Title',
     titlePH: 'What needs to be done?', notes: 'Notes', notesPH: 'Optional details...',
-    schedule: 'Schedule', singleDay: 'Single Day', dateRange: 'Date Range',
+    schedule: 'Schedule', singleDay: 'Standard', dateRange: 'Date Range',
+    thisDateOnly: 'This date only',
+    repetitions: 'Repetitions',
     recurring: 'Recurring', dueTime: 'Due Time (optional)', save: 'Save',
     update: 'Update', deleteTodo: 'Delete Todo', date: 'Date', start: 'Start', end: 'End',
     frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly',
@@ -416,7 +418,9 @@ const I18N = {
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
     addTodo: 'Todo hinzufügen', editTodo: 'Todo bearbeiten', title: 'Titel',
     titlePH: 'Was muss erledigt werden?', notes: 'Notizen', notesPH: 'Optionale Details...',
-    schedule: 'Zeitplan', singleDay: 'Einzelner Tag', dateRange: 'Zeitraum',
+    schedule: 'Zeitplan', singleDay: 'Standard', dateRange: 'Zeitraum',
+    thisDateOnly: 'Nur dieses Datum',
+    repetitions: 'Wiederholungen',
     recurring: 'Wiederkehrend', dueTime: 'Uhrzeit (optional)', save: 'Speichern',
     update: 'Aktualisieren', deleteTodo: 'Todo löschen', date: 'Datum', start: 'Start',
     end: 'Ende', frequency: 'Häufigkeit', daily: 'Täglich', weekly: 'Wöchentlich',
@@ -1718,6 +1722,13 @@ const Sync = {
       { label: L('syncStop'), cls: 'btn-danger', action() { Sync.stop(); } }
     ]);
   },
+  
+  confirmStopFolder(folderId) {
+    Modal.confirm(L('syncStop'), L('syncStopMsg'), [
+      { label: L('cancel'), cls: 'btn-outline', action() {} },
+      { label: L('folderSyncStop'), cls: 'btn-danger', action() { Sync.stopFolder(folderId); } }
+    ]);
+  },
 
   stop() {
     if (this.main) this.main.stop();
@@ -2244,12 +2255,12 @@ const AddForm = {
           <input class="form-input" type="date" id="f_date" value="${singleDate}">
           <div class="chip-group" style="margin-top:8px">
             <button class="chip ${isUntilDone ? 'active' : ''}" id="chipUntilDone" onclick="AddForm.toggleSingleUntilDone(true)">${L('untilDone')}</button>
-            <button class="chip ${!isUntilDone ? 'active' : ''}" id="chipOnlyToday" onclick="AddForm.toggleSingleUntilDone(false)">${L('singleDay')}</button>
+            <button class="chip ${!isUntilDone ? 'active' : ''}" id="chipOnlyToday" onclick="AddForm.toggleSingleUntilDone(false)">${L('thisDateOnly')}</button>
           </div>
         </div>
         <div class="span-count-row mb" id="singleCountRow" style="display:${isUntilDone ? 'flex' : 'none'}">
           <input class="form-input form-input-narrow" type="number" id="f_singleCount" min="1" value="${singleCount}">
-          <span class="span-count-label">× ${L('timesPerSpan')}</span>
+          <span class="span-count-label">× ${L('repetitions')}</span>
         </div>`;
     }
     else if (type === 'range') {
@@ -2657,7 +2668,7 @@ const Settings = {
           </div>
           <div class="sync-qr"><img src="${qrUrl}" alt="QR"></div>
           <div class="sync-actions">
-            <button class="btn btn-outline" onclick="Sync.stopFolder('${f.id}');Settings.render()">${L('folderSyncStop')}</button>
+            <button class="btn btn-outline" onclick="Sync.confirmStopFolder('${f.id}')">${L('folderSyncStop')}</button>
             <button class="btn btn-danger" onclick="Settings.confirmDeleteFolderSync('${f.id}')">${L('folderSyncDelete')}</button>
           </div>
         </div>
@@ -2911,7 +2922,11 @@ const Settings = {
 
   setFolderColor(id, color) {
     Folders.setColor(id, color);
-    this.render();
+    const dotLg = document.querySelector('.folder-list-item.editing .folder-dot-lg');
+    if (dotLg) dotLg.style.background = color;
+    document.querySelectorAll('.folder-list-item.editing .folder-color-dot').forEach(el => {
+      el.classList.toggle('active', el.style.background === color);
+    });
     App.render();
   },
   
