@@ -611,7 +611,11 @@ const Util = {
   dateStr(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
   parseDate(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); },
   formatShort(s) { const d = this.parseDate(s); return `${d.getDate()} ${L('monthNames')[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`; },
-  uid() { return crypto.randomUUID(); },
+  uid() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+  },
   isToday(ds) { return ds === this.dateStr(new Date()); },
   esc(s) { const el = document.createElement('div'); el.textContent = s; return el.innerHTML; },
   safeId(s) { return s.replace(/[^a-zA-Z0-9_-]/g, ''); },
