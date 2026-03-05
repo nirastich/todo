@@ -2176,7 +2176,7 @@ const App = {
 const AddForm = {
   render(existing) {
     const t = existing || {};
-    const type = t.type || 'single';
+    const type = (t.type === 'range' && !t.endDate && (t.rangeCount || 0) > 0) ? 'single' : (t.type || 'single');
     const ds = Util.dateStr(App.currentDate);
     const body = document.getElementById('addModalBody');
     const currentFolderId = t.folderId || Store.settings.activeFolder || '';
@@ -2231,21 +2231,33 @@ const AddForm = {
     const ds = Util.dateStr(App.currentDate);
 
     if (type === 'single') {
-      c.innerHTML = `<div class="form-group"><label class="form-label">${L('date')}</label>
-        <input class="form-input" type="date" id="f_date" value="${t.date || ds}"></div>`;
+      const isUntilDone = t?.type ? (t.type === 'range' && !t.endDate && (t.rangeCount || 0) > 0) : true;
+      const singleDate = isUntilDone ? (t?.startDate || ds) : (t?.date || ds);
+      const singleCount = isUntilDone ? (t?.rangeCount || 1) : 1;
+      c.innerHTML = `
+        <div class="form-group">
+          <label class="form-label">${L('date')}</label>
+          <input class="form-input" type="date" id="f_date" value="${singleDate}">
+          <div class="chip-group" style="margin-top:8px">
+            <button class="chip ${isUntilDone ? 'active' : ''}" id="chipUntilDone" onclick="AddForm.toggleSingleUntilDone(true)">${L('untilDone')}</button>
+            <button class="chip ${!isUntilDone ? 'active' : ''}" id="chipOnlyToday" onclick="AddForm.toggleSingleUntilDone(false)">${L('singleDay')}</button>
+          </div>
+        </div>
+        <div class="span-count-row mb" id="singleCountRow" style="display:${isUntilDone ? 'flex' : 'none'}">
+          <input class="form-input form-input-narrow" type="number" id="f_singleCount" min="1" value="${singleCount}">
+          <span class="span-count-label">× ${L('timesPerSpan')}</span>
+        </div>`;
     }
     else if (type === 'range') {
       const v = t.rangeCount || 0;
-      const isOpenEnd = !t.endDate && v > 0;
       c.innerHTML = `
         <div class="form-row">
           <div class="form-group"><label class="form-label">${L('start')}</label><input class="form-input" type="date" id="f_startDate" value="${t.startDate || ds}"></div>
-          <div class="form-group ${isOpenEnd ? 'disabled' : ''}" id="f_endGroup"><label class="form-label">${L('end')}</label><input class="form-input" type="date" id="f_endDate" value="${isOpenEnd ? '' : (t.endDate || ds)}"></div>
+          <div class="form-group" id="f_endGroup"><label class="form-label">${L('end')}</label><input class="form-input" type="date" id="f_endDate" value="${t.endDate || (() => { const d = new Date(Util.parseDate(ds)); d.setDate(d.getDate() + 3); return Util.dateStr(d); })()}"></div>
         </div>
         <div class="span-count-row mb">
-          <input class="form-input form-input-narrow" type="number" id="f_rangeCount" min="0" value="${v > 0 ? v : ''}" placeholder="∞" oninput="AddForm.onRangeCountChange()">
+          <input class="form-input form-input-narrow" type="number" id="f_rangeCount" min="0" value="${v > 0 ? v : ''}" placeholder="∞">
           <span class="span-count-label">× ${L('timesPerSpan')}</span>
-          <button type="button" class="chip chip-sm chip-ml ${isOpenEnd ? 'active' : ''}" id="untilDoneChip" onclick="AddForm.toggleUntilDone()">${L('untilDone')}</button>
         </div>`;
     }
     else {
@@ -2396,36 +2408,14 @@ const AddForm = {
     }
   },
   
-  toggleUntilDone() {
-    const chip = document.getElementById('untilDoneChip');
-    const endGroup = document.getElementById('f_endGroup');
-    const countInput = document.getElementById('f_rangeCount');
-    const isActive = chip.classList.toggle('active');
-    if (isActive) {
-      if (!countInput.value || parseInt(countInput.value) < 1) countInput.value = 1;
-      document.getElementById('f_endDate').value = '';
-      endGroup.style.opacity = '0.35';
-      endGroup.style.pointerEvents = 'none';
-    } else {
-      const ds = Util.dateStr(App.currentDate);
-      const startVal = document.getElementById('f_startDate').value || ds;
-      document.getElementById('f_endDate').value = startVal;
-      endGroup.style.opacity = '';
-      endGroup.style.pointerEvents = '';
-    }
-  },
-
-  onRangeCountChange() {
-    const chip = document.getElementById('untilDoneChip');
-    const countInput = document.getElementById('f_rangeCount');
-    const val = parseInt(countInput.value) || 0;
-    if (val < 1 && chip.classList.contains('active')) {
-      chip.classList.remove('active');
-      const endGroup = document.getElementById('f_endGroup');
-      const ds = Util.dateStr(App.currentDate);
-      document.getElementById('f_endDate').value = document.getElementById('f_startDate').value || ds;
-      endGroup.style.opacity = '';
-      endGroup.style.pointerEvents = '';
+  toggleSingleUntilDone(on) {
+    document.getElementById('chipOnlyToday').classList.toggle('active', !on);
+    document.getElementById('chipUntilDone').classList.toggle('active', on);
+    const row = document.getElementById('singleCountRow');
+    row.style.display = on ? 'flex' : 'none';
+    if (on) {
+      const input = document.getElementById('f_singleCount');
+      if (!input.value || parseInt(input.value) < 1) input.value = 1;
     }
   },
 
@@ -2450,14 +2440,27 @@ const AddForm = {
     delete todo.date; delete todo.startDate; delete todo.endDate; delete todo.recurrence; delete todo.rangeCount;
 
     if (type === 'single') {
-      todo.date = document.getElementById('f_date').value;
+      const untilDone = document.getElementById('chipUntilDone')?.classList.contains('active');
+      if (untilDone) {
+        todo.type = 'range';
+        todo.startDate = document.getElementById('f_date').value;
+        todo.endDate = null;
+        todo.rangeCount = Math.max(1, parseInt(document.getElementById('f_singleCount').value) || 1);
+      } else {
+        todo.date = document.getElementById('f_date').value;
+      }
     }
     else if (type === 'range') {
       todo.startDate = document.getElementById('f_startDate').value;
       todo.endDate = document.getElementById('f_endDate').value || null;
-      todo.rangeCount = Math.max(0, parseInt(document.getElementById('f_rangeCount').value) || 0);
-      if (!todo.endDate && todo.rangeCount < 1) todo.endDate = todo.startDate;
+      let rangeCount = Math.max(0, parseInt(document.getElementById('f_rangeCount').value) || 0);
       if (todo.endDate && todo.startDate > todo.endDate) [todo.startDate, todo.endDate] = [todo.endDate, todo.startDate];
+      if (rangeCount > 0 && todo.endDate) {
+        const days = Math.round((Util.parseDate(todo.endDate) - Util.parseDate(todo.startDate)) / 864e5) + 1;
+        rangeCount = Math.min(rangeCount, days);
+      }
+      todo.rangeCount = rangeCount;
+      if (!todo.endDate && todo.rangeCount < 1) todo.endDate = todo.startDate;
     }
     else {
       const freq = document.querySelector('#freqTabs .chip.active')?.dataset.freq || 'weekly';
