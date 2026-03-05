@@ -2106,9 +2106,9 @@ const App = {
       let progress = '';
       if (Todos._isSpan(todo) && Todos.spanTarget(todo) >= 1) {
         progress = `<div class="todo-progress">${Todos.spanCompletionCount(todo, ds)}/${Todos.spanTarget(todo)}</div>`;
-      } else if (todo.type === 'range' && (todo.rangeCount || 0) > 0) {
+      } else if (todo.type === 'range' && (todo.rangeCount || 0) > 1) {
         const target = Todos.rangeTarget(todo);
-        if (target > 0) progress = `<div class="todo-progress">${Todos.rangeCompletionCount(todo)}/${target}</div>`;
+        progress = `<div class="todo-progress">${Todos.rangeCompletionCount(todo)}/${target}</div>`;
       }
 
       if (sk) {
