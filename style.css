@@ -92,6 +92,7 @@ button { cursor: pointer; border: none; background: none; color: inherit; }
   border-radius: var(--radius-sm);
   color: var(--text-2);
   transition: all 0.2s ease;
+  z-index: 1;
 }
 
 .icon-btn:hover { background: var(--surface-2); color: var(--text); }
@@ -146,7 +147,7 @@ button { cursor: pointer; border: none; background: none; color: inherit; }
   width: 100%;
   height: 100%;
   cursor: pointer;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 /* --- Folder dropdown --- */
