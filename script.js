@@ -281,6 +281,7 @@ const I18N = {
     yearlyOn: (m, d) => `Yearly on ${MONTHS_EN[m]} ${d}`,
     sync: 'Sync', syncOn: 'On', syncOff: 'Off', syncGenerate: 'New',
     syncJoin: 'Join', syncStop: 'Stop sync', syncCopied: 'Copied',
+    syncStopMsg: 'Sync will be disabled on this device. Your data remains on the server and other devices stay connected. To rejoin, you\'ll need your sync key. Make sure you\'ve saved it.',
     syncIdPH: 'Enter sync key...',
     syncJoinTitle: 'Join Sync',
     syncJoinMsg: (remote, local) => `Remote has ${remote} todo(s). You have ${local} local todo(s). How would you like to proceed?`,
@@ -470,6 +471,7 @@ const I18N = {
     yearlyOn: (m, d) => `Jährlich am ${d}. ${MONTHS_DE[m]}`,
     sync: 'Sync', syncOn: 'An', syncOff: 'Aus', syncGenerate: 'Neu',
     syncJoin: 'Beitreten', syncStop: 'Sync stoppen', syncCopied: 'Kopiert',
+    syncStopMsg: 'Sync wird auf diesem Gerät deaktiviert. Deine Daten bleiben auf dem Server und andere Geräte bleiben verbunden. Um dich erneut zu verbinden, benötigst du deinen Sync-Schlüssel. Stelle sicher, dass du ihn gespeichert hast.',
     syncIdPH: 'Sync-Schlüssel eingeben...',
     syncJoinTitle: 'Sync beitreten',
     syncJoinMsg: (remote, local) => `Remote hat ${remote} Todo(s). Du hast ${local} lokale Todo(s). Wie möchtest du fortfahren?`,
@@ -1705,6 +1707,13 @@ const Sync = {
     if (mode === 'merge') await this.main.push(true);
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
+  
+  confirmStop() {
+    Modal.confirm(L('syncStop'), L('syncStopMsg'), [
+      { label: L('cancel'), cls: 'btn-outline', action() {} },
+      { label: L('syncStop'), cls: 'btn-danger', action() { Sync.stop(); } }
+    ]);
+  },
 
   stop() {
     if (this.main) this.main.stop();
@@ -2742,7 +2751,7 @@ const Settings = {
           <div class="sync-qr"><img src="${qrUrl}" alt="QR"></div>
           <div class="sync-actions">
             <button class="btn btn-outline" onclick="Sync.downloadServer()">${L('syncDownloadServer')}</button>
-            <button class="btn btn-outline" onclick="Sync.stop()">${L('syncStop')}</button>
+            <button class="btn btn-outline" onclick="Sync.confirmStop()">${L('syncStop')}</button>
           </div>
           <div class="sync-actions"><button class="btn btn-danger" onclick="Sync.deleteServer()">${L('syncDeleteServer')}</button></div>
         </div>`;
