@@ -14,11 +14,12 @@ A privacy-focused, offline-capable todo app with end-to-end encrypted sync acros
 - **End-to-end encrypted sync** using AES-256-GCM, key derived with PBKDF2 (100,000 iterations). The server never sees your data
 - **Shared folders** to share individual folders with others via a separate sync key
 - **Offline-first PWA** that is installable, works without internet, and syncs when back online
-- **Bilingual** support for English and German
+- **Bilingual** base-support for English and German
 - **Dark/light theme** with customizable accent color
 - **Import/export** as JSON
 - **Clean Up tool** to remove past todos and trim old completion history
 - **GDPR-friendly** with no analytics, no cookies, no user accounts
+-  **Community translations** via a built-in [translation editor](https://todo.73.nu/i18n/editor). Contributors are credited by name with an optional link
 
 ---
 
@@ -105,8 +106,20 @@ This means the app loads instantly on repeat visits and remains fully functional
 
 ---
 
-## Project Structure
+## Translations (i18n)
 
+Language files live in `/i18n/` as separate `.js` files loaded and cached on demand. English and German are built-in, community translations are managed through a [translation editor](https://todo.73.nu/i18n/editor).
+
+### How it works
+
+- Anyone can pick a language, translate keys, save a draft link, and submit for review
+- Submissions go to a pending queue. The admin reviews a diff of changed keys before approving
+- Approved translations are published as a new `.js` file and appear in the app's language selector
+- Contributors are credited by name (with optional URL) in the app when their language is active
+
+---
+
+## Project Structure
 ```
 /
 ├── index.html          # App shell
@@ -115,7 +128,11 @@ This means the app loads instantly on repeat visits and remains fully functional
 ├── sync.php            # Sync backend
 ├── sw.js               # Service worker
 ├── qr.js               # QR code generator
-└── site.webmanifest    # PWA manifest
+├── site.webmanifest    # PWA manifest
+└── i18n/               # Translations
+    ├── en.js           # English (built-in)
+    ├── de.js           # German (built-in)
+    ├── langs.json      # Language registry
 ```
 
 ---
