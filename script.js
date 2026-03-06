@@ -2264,6 +2264,18 @@ const ACCENT_PRESETS = ['#76b852', '#4A9EFF', '#A78BFA', '#FB923C', '#EF4444'];
 
 const Settings = {
   _editingFolderId: null,
+  _langCache: null,
+  _creditListenerBound: false,
+
+  _bindCreditDropdown() {
+    if (this._creditListenerBound) return;
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.lang-credit-wrap')) {
+        document.querySelectorAll('.lang-credit-drop.open').forEach(d => d.classList.remove('open'));
+      }
+    });
+    this._creditListenerBound = true;
+  },
 
   _renderFolderSyncSection(f) {
     const ch = Sync.folderChannels[f.id];
@@ -2414,7 +2426,7 @@ const Settings = {
 
       <div class="setting-row wrap">
         <div class="setting-info">
-          <div class="setting-label">${L('language')} <a href="/i18n/editor" target="_blank" style="font-size:0.68rem;color:var(--text-3);font-weight:400;text-decoration:underline;margin-left:4px">Help translate</a></div>
+          <div class="setting-label">${L('language')} <a href="/i18n/editor" target="_blank" style="font-size:0.68rem;color:var(--text-3);font-weight:400;text-decoration:underline;margin-left:4px">Help&nbsp;translate</a></div>
           <div class="setting-desc">${L('langSub')}</div>
         </div>
         <div class="setting-action">
@@ -2630,14 +2642,55 @@ const Settings = {
       `<button class="lang-btn ${code === current ? 'active' : ''}" onclick="Settings.setLang('${code}')">${code.toUpperCase()}</button>`
     ).join('');
 
-    if (community.length) {
+    if (community.length === 1) {
+      const [code, info] = community[0];
+      html += `<button class="lang-btn ${code === current ? 'active' : ''}" onclick="Settings.setLang('${code}')" title="${Util.esc(info.native || info.name)} (${code})">${code.toUpperCase()}</button>`;
+    } else if (community.length >= 2) {
       const currentCommunity = community.find(([c]) => c === current);
-      html += `<select class="lang-btn" style="padding:5px 8px;font-size:0.78rem;background:${currentCommunity ? 'var(--accent)' : 'var(--surface-2)'};color:${currentCommunity ? '#000' : 'var(--text)'};border:1px solid ${currentCommunity ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius-sm);cursor:pointer" onchange="if(this.value)Settings.setLang(this.value)">
-        <option value="" ${!currentCommunity ? 'selected' : ''}>More…</option>
-        ${community.map(([code, info]) => `<option value="${code}" ${code === current ? 'selected' : ''}>${info.native || info.name} (${code}) ${info.complete < 100 ? info.complete + '%' : ''}</option>`).join('')}
+      html += `<select class="lang-btn lang-select ${currentCommunity ? 'active' : ''}" onchange="if(this.value)Settings.setLang(this.value)">
+        <option value="" ${!currentCommunity ? 'selected' : ''}>More</option>
+        ${community.map(([code]) => `<option value="${code}" ${code === current ? 'selected' : ''}>${code.toUpperCase()}</option>`).join('')}
       </select>`;
     }
-
+    
+    el.innerHTML = html;
+    
+    const oldCredit = el.parentElement.querySelector('.lang-credit');
+    if (oldCredit) oldCredit.remove();
+    
+    const activeCommunity = community.find(([c]) => c === current);
+    if (activeCommunity) {
+      const [code, info] = activeCommunity;
+      const native = info.native || info.name || code;
+      const english = info.name || '';
+      const parts = [Util.esc(native) + (english && english !== native ? ` (${Util.esc(english)})` : '')];
+      const credits = Array.isArray(info.credits) && info.credits.length ? info.credits : (info.author ? [{ name: info.author, url: info.author_url || '' }] : []);
+      if (credits.length) {
+      const first = credits[0];
+      const n = Util.esc(first.name);
+      const u = String(first.url || '').trim();
+      const link = u ? `<a href="${Util.esc(u)}" target="_blank" rel="noopener">${n}</a>` : n;
+    
+      if (credits.length === 1) {
+        parts.push('by&nbsp;' + link);
+      } else {
+        const rest = credits.slice(1).map(c => {
+          const cn = Util.esc(c.name);
+          const cu = String(c.url || '').trim();
+          return `<div>${cu ? `<a href="${Util.esc(cu)}" target="_blank" rel="noopener">${cn}</a>` : cn}</div>`;
+        }).join('');
+        parts.push(
+          'by&nbsp;' + link +
+          `&nbsp;<span class="lang-credit-wrap"><span class="lang-credit-more" onclick="this.nextElementSibling.classList.toggle(\'open\')">+${credits.length - 1}</span><div class="lang-credit-drop">${rest}</div></span>`
+        );
+      }
+    }
+      const creditEl = document.createElement('div');
+      creditEl.className = 'lang-credit';
+      creditEl.innerHTML = parts.join(' ');
+      el.parentElement.appendChild(creditEl);
+    }
+    this._bindCreditDropdown();
     el.innerHTML = html;
   },
 
