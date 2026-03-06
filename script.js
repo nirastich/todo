@@ -161,8 +161,6 @@ const Crypto = {
   }
 };
 
-const MONTHS_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-const MONTHS_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 const FOLDER_COLORS = ['#4A9EFF','#A78BFA','#FB923C','#EF4444','#10B981','#F472B6','#FBBF24','#6366F1'];
 
 const Store = {
@@ -216,400 +214,21 @@ const Store = {
   saveSettings() { localStorage.setItem('todo_settings', JSON.stringify(this.settings)); }
 };
 
-function ordinal(n) {
-  if (Store.settings.lang === 'de') return n + '.';
-  const s = ['th','st','nd','rd'], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+const I18N = {};
+
+function loadLang(lang) {
+  return new Promise((resolve, reject) => {
+    if (I18N[lang]) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = '/i18n/' + lang + '.js';
+    s.onload = () => { I18N[lang] = window._i18n[lang]; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
 }
 
-const I18N = {
-  en: {
-    add: 'Add', allTodos: 'All Todos', settings: 'Settings', todoDetails: 'Todo Details',
-    addTodo: 'Add Todo', editTodo: 'Edit Todo', title: 'Title',
-    titlePH: 'What needs to be done?', notes: 'Notes', notesPH: 'Optional details...',
-    schedule: 'Schedule', singleDay: 'Standard', dateRange: 'Date Range',
-    thisDateOnly: 'This date only',
-    repetitions: 'Repetitions',
-    recurring: 'Recurring', dueTime: 'Due Time (optional)', save: 'Save',
-    update: 'Update', deleteTodo: 'Delete Todo', date: 'Date', start: 'Start', end: 'End',
-    frequency: 'Frequency', daily: 'Daily', weekly: 'Weekly', biweekly: 'Biweekly',
-    monthly: 'Monthly', yearly: 'Yearly', days: 'Days',
-    spanMode: 'Span mode (e.g. Friday → Sunday)', dayOfMonth: 'Day of Month',
-    month: 'Month', day: 'Day', starts: 'Starts', endsOpt: 'Ends (optional)',
-    repeatsDaily: 'Repeats every day.', everyWeek: 'every week',
-    everyOtherWeek: 'every other week', theme: 'Theme',
-    themeSub: 'Switch between dark and light mode', language: 'Language',
-    langSub: 'Choose your language', accentColor: 'Accent Color',
-    accentSub: 'Customize the highlight color', exportData: 'Export Data',
-    exportSub: 'Download all todos as JSON', export: 'Export',
-    importData: 'Import Data', importSub: 'Load todos from a JSON file', import: 'Import',
-    resetData: 'Reset Data', resetSub: 'Delete all todos permanently', reset: 'Reset',
-    cancel: 'Cancel', delete: 'Delete', deleteAll: 'Delete Everything',
-    addExisting: 'Merge', overwrite: 'Overwrite',
-    importTodos: 'Import Todos', importErr: 'Import Error',
-    importErrMsg: 'Could not read the file. Make sure it is a valid JSON export.',
-    resetTitle: 'Reset All Data',
-    resetMsg: 'This will permanently delete all your todos. This cannot be undone.',
-    delTitle: 'Delete Todo', delMsg: 'Are you sure you want to delete this todo?',
-    noTodos: 'No todos for this day.', enjoy: 'Enjoy the free time!',
-    open: 'open', done: 'done', completed: '✓ Completed', openSt: 'Open',
-    markOpen: 'Mark Open', markDone: 'Mark Done', edit: 'Edit',
-    all: 'All', single: 'Single', range: 'Range', to: 'to', ok: 'OK',
-    noYet: 'No todos yet.', everyDay: 'Every day', weeklyOn: 'Weekly',
-    biweeklyOn: 'Every other week', custom: 'Custom',
-    allDone: 'All done for today!', timesPerSpan: 'Times per span',untilDone: 'Until done',
-    notToday: 'Not today', showAgain: 'Show again',
-    nHidden: n => `${n} hidden`,
-    isolated: 'Isolated',
-    isolatedDesc: 'Todos only visible when folder is selected',
-    noSyncFolder: 'Local only',
-    noSyncDesc: 'Exclude from sync, keep only on this device',
-    noSyncConfirmTitle: 'Remove from sync?',
-    noSyncConfirmMsg: 'This folder and its todos will be removed from all synced devices and only kept locally on this device.',
-    noSyncDisableTitle: 'Enable sync for folder?',
-    noSyncDisableMsg: 'This folder and its todos will be included in sync again and shared across devices.',
-    hideDesc: 'Hide from folder list and overview',
-    dayNames: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
-    dayFull: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'],
-    monthNames: MONTHS_EN,
-    importMsg: n => `Found ${n} todo(s). How would you like to import?`,
-    storageUsed: 'Storage Used', storageSub: 'Data saved in your browser',
-    cleanup: 'Clean Up', cleanupData: 'Clean Up Data',
-    cleanupSub: 'Remove past single & range todos and old completion dates',
-    cleanupTitle: 'Clean Up Data',
-    cleanupMsg: n => n > 0 ? `This will remove ${n} past todo(s) and trim old data. Continue?` : 'Nothing to clean up. All todos are current.',
-    cleaned: 'Done',
-    monthlyOn: d => `Monthly on the ${ordinal(d)}`,
-    yearlyOn: (m, d) => `Yearly on ${MONTHS_EN[m]} ${d}`,
-    sync: 'Sync', syncOn: 'On', syncOff: 'Off', syncGenerate: 'New',
-    syncJoin: 'Join', syncStop: 'Stop sync', syncCopied: 'Copied',
-    syncStopMsg: 'Sync will be disabled on this device. Your data remains on the server and other devices stay connected. To rejoin, you\'ll need your sync key. Make sure you\'ve saved it.',
-    syncIdPH: 'Enter sync key...',
-    syncJoinTitle: 'Join Sync',
-    syncJoinMsg: (remote, local) => `Remote has ${remote} todo(s). You have ${local} local todo(s). How would you like to proceed?`,
-    syncServerNote: 'Your todos are end-to-end encrypted. Anyone with this sync key has full access to the data.',
-    syncDeleteServer: 'Delete Server Data',
-    syncDeleteTitle: 'Delete Server Data',
-    syncDeleteMsg: 'This will permanently remove all synced data from the server and stop syncing. Local data is kept.',
-    syncDownloadServer: 'Download Server Data',
-    syncPrivacy: 'Data Privacy',
-    syncPrivacyTitle: 'Sync Data Privacy',
-    syncPrivacyH1: 'What data is stored on the server?',
-    syncPrivacyWhat: 'When sync is enabled, the following data is transmitted to and stored on the server:',
-    syncPrivacyItem1: 'Your todos (titles, notes, dates, completion state), fully end-to-end encrypted',
-    syncPrivacyItem2: 'A dataset identifier derived from a hash of your sync key',
-    syncPrivacyItem3: 'A version counter used for conflict detection and synchronization',
-    syncPrivacyH2: 'How is the data protected?',
-    syncPrivacyEncrypt: 'All todo data is encrypted locally on your device using AES-256-GCM before being sent to the server. The encryption key is derived from your sync key using PBKDF2 with 100,000 iterations. The server never receives the encryption key and cannot decrypt your data.',
-    syncPrivacyH3: 'How is the data stored?',
-    syncPrivacyHow: 'Encrypted data is stored on the server as an opaque file identified only by the hashed dataset identifier. No accounts, names, email addresses, or personal identifiers are used. The server cannot determine the contents of your todos.',
-    syncPrivacyH4: 'Access and control',
-    syncPrivacyRights: 'Anyone with the full sync key can access and modify the encrypted data. You can download the encrypted server data at any time or permanently delete it using the delete function. Disabling sync does not automatically delete server data.',
-    syncPrivacyH5: 'Logging and tracking',
-    syncPrivacyNo: 'No analytics, advertising, cookies, or tracking technologies are used. The server may temporarily log IP addresses and request timestamps solely for operational security and abuse prevention. These logs are not linked to identifiable user profiles.',
-    syncPrivacyH6: 'Shared Folders',
-    syncPrivacyFolder: 'In addition to full sync, individual folders can be shared with others using a separate sync key. Each shared folder creates an independent encrypted dataset on the server with its own key. Shared folder data is encrypted using the same AES-256-GCM standard. The folder sync key only grants access to that specific folder, not to your other todos or main sync data. When you stop sharing a folder, the server data persists until explicitly deleted.',
-    installApp: 'Install App',
-    installSub: 'Add to home screen for offline use and a native app experience',
-    install: 'Install',
-    folders: 'Folders', folder: 'Folder', allFolders: 'All',
-    noFolder: 'No folder', manageFolders: 'Manage Folders',
-    foldersSub: 'Organize your todos into folders',
-    folderName: 'Folder name', folderNamePH: 'e.g. Work, Personal...',
-    addFolder: 'Add', editFolder: 'Edit Folder', deleteFolder: 'Delete Folder',
-    deleteFolderTitle: 'Delete Folder',
-    deleteFolderMsg: 'Delete this folder? Todos in this folder will be kept but unassigned.',
-    folderColor: 'Color',
-    renameFolderPH: 'New name...',
-    hide: 'Hide on this device', show: 'Show on this device',
-    supportProject: 'Support this project',
-    syncTooLargeTitle: 'Sync Limit Reached',
-    syncTooLargeMsg: 'Your data exceeds the 512 KB sync limit. Remove old todos via Clean Up to continue syncing.',
-    installHow: 'How to',
-    installIOSSub: 'In Safari: Share → Add to Home Screen',
-    installIOSHowMsg: 'In Safari tap Share, then Add to Home Screen.',
-    installFirefoxSub: 'Firefox: Menu → Install / Add to Home screen',
-    installFirefoxHowMsg: 'Open the Firefox menu and choose Install or Add to Home screen.',
-    syncDataSize: 'Sync Data',
-    syncDataSub: 'Todo data saved on server',
-    cacheSize: 'App Cache',
-    cacheSub: 'Data saved in your browser',
-    versionConflict: 'Data conflict',
-    versionConflictMessage: 'Synchronized data has changed since your last connection.',
-    dataDiscard: 'Discard my changes',
-    dataOverwrite: 'Overwrite with my changes',
-    folderSync: 'Shared Folder',
-    folderSyncSetup: 'Share Folder',
-    folderSyncDesc: 'Share this folder with others via a separate sync key',
-    folderSyncStop: 'Stop sharing',
-    folderSyncDelete: 'Delete shared data',
-    folderSyncNote: 'Anyone with this key can access all todos in this folder.',
-    folderSyncJoinTitle: 'Join Shared Folder',
-    folderSyncJoinMsg: (remote, local) => `Shared folder has ${remote} todo(s). You have ${local} local todo(s) in this folder. How would you like to proceed?`,
-    cleanupWillRemove: 'Will remove:',
-    cleanupMore: n => `… and ${n} more.`,
-    cleanupReasonSingle: d => `Single (${d})`,
-    cleanupReasonRange: (s, e) => `Range (${s} → ${e})`,
-    cleanupReasonUntilDone: (done, target) => `Until done (${done}/${target})`,
-    cleanupReasonRecurring: d => `Recurring (ended ${d})`,
-    sourceCode: 'Source code on',
-    welcomeTour: 'Welcome Tour',
-    welcomeTourSub: 'Replay the intro and feature overview',
-    welcomeTourBtn: 'Replay',
-    welcomeSkip: 'Skip',
-    welcomeNext: 'Next',
-    welcomeBack: 'Back',
-    welcomeDone: 'Get started',
-    w1Title: 'Welcome to Todo',
-    w1Sub: 'A simple, private to-do app with folders, recurring tasks, encrypted sync, and offline support.',
-    w2Title: 'Flexible Scheduling',
-    w2Single: 'Single day',
-    w2Range: 'Date range',
-    w2Recurring: 'Recurring',
-    w2Span: 'Span mode',
-    w2Ex1: 'Buy birthday present',
-    w2Ex2: 'Read 3 chapters',
-    w2Ex3: 'Water plants',
-    w2Ex4: 'Go for a run',
-    w2Ex5: 'Clean bathroom',
-    w2EveryNWeeks: 'Every 2 weeks',
-    w2Loose: '~Monthly',
-    w3Title: 'Organize with Folders',
-    w3Ex1: 'Work',
-    w3Ex2: 'Personal',
-    w3Ex3: 'Shared',
-    w3Ex4: 'Gym',
-    w3Feat1: 'Color-coded',
-    w3Feat2: 'Hide or isolate per device',
-    w3Feat3: 'Share folders with others',
-    w4Title: 'End-to-End Encrypted Sync',
-    w4Device: 'Your device',
-    w4Encrypted: 'Encrypted',
-    w4Server: 'Server',
-    w4Feat1: 'AES-256 end-to-end encryption.',
-    w4Feat2: 'No accounts, no tracking, no ads',
-    w4Feat3: 'Works offline, syncs when back online',
-    w5Title: 'Quick Tips',
-    w5Tip1T: 'Navigate days',
-    w5Tip1D: 'Use the arrow buttons or keyboard arrows',
-    w5Tip2T: 'Reorder todos',
-    w5Tip2D: 'Long-press or drag to rearrange',
-    w5Tip3T: 'Todo details',
-    w5Tip3D: 'Tap a todo for details, skip, or edit',
-    w5Tip4T: 'Install as app',
-    w5Tip4D: 'Find it in Settings for the best experience',
-    resetMsgShared: names => `This will permanently delete all your local todos. You have shared folders (${names})! Their server data will be kept for other users unless you choose to delete it.`,
-    resetKeepShared: 'Local reset only',
-    resetDeleteShared: 'Reset & delete server data',
-    loose: 'Flexible',
-    looseMonthlyDesc: 'Any day, once per month until done',
-    looseYearlyDesc: 'Any day, once per year until done',
-    anyMonth: 'Any month',
-    looseMonthly: '~Monthly',
-    looseYearly: '~Yearly',
-    looseYearlyMonth: m => `~Yearly in ${MONTHS_EN[m]}`,
-    every: 'Every',
-    weeksUnit: 'week(s)',
-    monthsUnit: 'month(s)',
-    everyNWeeks: n => `Every ${n} weeks`,
-    everyNMonths: n => `Every ${n} months`,
-      },
-  de: {
-    add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
-    addTodo: 'Todo hinzufügen', editTodo: 'Todo bearbeiten', title: 'Titel',
-    titlePH: 'Was muss erledigt werden?', notes: 'Notizen', notesPH: 'Optionale Details...',
-    schedule: 'Zeitplan', singleDay: 'Standard', dateRange: 'Zeitraum',
-    thisDateOnly: 'Nur dieses Datum',
-    repetitions: 'Wiederholungen',
-    recurring: 'Wiederkehrend', dueTime: 'Uhrzeit (optional)', save: 'Speichern',
-    update: 'Aktualisieren', deleteTodo: 'Todo löschen', date: 'Datum', start: 'Start',
-    end: 'Ende', frequency: 'Häufigkeit', daily: 'Täglich', weekly: 'Wöchentlich',
-    biweekly: 'Alle 2 Wochen', monthly: 'Monatlich', yearly: 'Jährlich', days: 'Tage',
-    spanMode: 'Zeitspanne (z.B. Freitag → Sonntag)', dayOfMonth: 'Tag im Monat',
-    month: 'Monat', day: 'Tag', starts: 'Beginn', endsOpt: 'Ende (optional)',
-    repeatsDaily: 'Wiederholt sich jeden Tag.', everyWeek: 'jede Woche',
-    everyOtherWeek: 'jede zweite Woche', theme: 'Design',
-    themeSub: 'Zwischen Hell und Dunkel wechseln', language: 'Sprache',
-    langSub: 'Sprache auswählen', accentColor: 'Akzentfarbe',
-    accentSub: 'App-Farbe anpassen', exportData: 'Daten exportieren',
-    exportSub: 'Alle Todos als JSON herunterladen', export: 'Export',
-    importData: 'Daten importieren', importSub: 'Todos aus JSON-Datei laden',
-    import: 'Import', resetData: 'Daten zurücksetzen',
-    resetSub: 'Alle Todos unwiderruflich löschen', reset: 'Zurücksetzen',
-    cancel: 'Abbrechen', delete: 'Löschen', deleteAll: 'Alles löschen',
-    addExisting: 'Zusammenführen', overwrite: 'Überschreiben',
-    importTodos: 'Todos importieren', importErr: 'Import Fehler',
-    importErrMsg: 'Datei konnte nicht gelesen werden.',
-    resetTitle: 'Alle Daten zurücksetzen',
-    resetMsg: 'Alle Todos werden unwiderruflich gelöscht.',
-    delTitle: 'Todo löschen', delMsg: 'Dieses Todo wirklich löschen?',
-    noTodos: 'Keine Todos für diesen Tag.', enjoy: 'Genieße die freie Zeit!',
-    open: 'offen', done: 'erledigt', completed: '✓ Erledigt', openSt: 'Offen',
-    markOpen: 'Wieder öffnen', markDone: 'Erledigen', edit: 'Bearbeiten',
-    all: 'Alle', single: 'Einzeln', range: 'Zeitraum', to: 'bis', ok: 'OK',
-    noYet: 'Noch keine Todos.', everyDay: 'Jeden Tag', weeklyOn: 'Wöchentlich',
-    biweeklyOn: 'Alle 2 Wochen', custom: 'Benutzerdefiniert',
-    allDone: 'Alles erledigt für heute!', timesPerSpan: 'Mal pro Zeitspanne',untilDone: 'Bis erledigt',
-    notToday: 'Nicht heute', showAgain: 'Wieder anzeigen',
-    nHidden: n => `${n} ausgeblendet`,
-    isolated: 'Isoliert',
-    isolatedDesc: 'Todos nur sichtbar wenn Ordner ausgewählt ist',
-    noSyncFolder: 'Nur lokal',
-    noSyncDesc: 'Nicht synchronisieren, nur auf diesem Gerät behalten',
-    noSyncConfirmTitle: 'Aus Sync entfernen?',
-    noSyncConfirmMsg: 'Dieser Ordner und seine Todos werden von allen synchronisierten Geräten entfernt und nur lokal auf diesem Gerät behalten.',
-    noSyncDisableTitle: 'Sync für Ordner aktivieren?',
-    noSyncDisableMsg: 'Dieser Ordner und seine Todos werden wieder synchronisiert und auf allen Geräten geteilt.',
-    hideDesc: 'Aus Ordnerliste und Übersicht ausblenden',
-    dayNames: ['So','Mo','Di','Mi','Do','Fr','Sa'],
-    dayFull: ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'],
-    monthNames: MONTHS_DE,
-    importMsg: n => `${n} Todo(s) gefunden. Wie importieren?`,
-    storageUsed: 'Speicherverbrauch', storageSub: 'Im Browser gespeicherte Daten',
-    cleanup: 'Aufräumen', cleanupData: 'Daten aufräumen',
-    cleanupSub: 'Vergangene Einzel- & Zeitraum-Todos und alte Daten entfernen',
-    cleanupTitle: 'Daten aufräumen',
-    cleanupMsg: n => n > 0 ? `${n} vergangene(s) Todo(s) werden entfernt und alte Daten bereinigt. Fortfahren?` : 'Nichts aufzuräumen. Alle Todos sind aktuell.',
-    cleaned: 'Fertig',
-    monthlyOn: d => `Monatlich am ${d}.`,
-    yearlyOn: (m, d) => `Jährlich am ${d}. ${MONTHS_DE[m]}`,
-    sync: 'Sync', syncOn: 'An', syncOff: 'Aus', syncGenerate: 'Neu',
-    syncJoin: 'Beitreten', syncStop: 'Sync stoppen', syncCopied: 'Kopiert',
-    syncStopMsg: 'Sync wird auf diesem Gerät deaktiviert. Deine Daten bleiben auf dem Server und andere Geräte bleiben verbunden. Um dich erneut zu verbinden, benötigst du deinen Sync-Schlüssel. Stelle sicher, dass du ihn gespeichert hast.',
-    syncIdPH: 'Sync-Schlüssel eingeben...',
-    syncJoinTitle: 'Sync beitreten',
-    syncJoinMsg: (remote, local) => `Remote hat ${remote} Todo(s). Du hast ${local} lokale Todo(s). Wie möchtest du fortfahren?`,
-    syncServerNote: 'Deine Todos sind Ende-zu-Ende verschlüsselt. Jeder mit diesem Sync-Schlüssel hat vollständigen Zugriff auf die Daten.',
-    syncDeleteServer: 'Serverdaten löschen',
-    syncDeleteTitle: 'Serverdaten löschen',
-    syncDeleteMsg: 'Alle synchronisierten Daten werden unwiderruflich vom Server entfernt und die Synchronisierung gestoppt. Lokale Daten bleiben erhalten.',
-    syncDownloadServer: 'Serverdaten herunterladen',
-    syncPrivacy: 'Datenschutz',
-    syncPrivacyTitle: 'Sync Datenschutz',
-    syncPrivacyH1: 'Welche Daten werden auf dem Server gespeichert?',
-    syncPrivacyWhat: 'Wenn Sync aktiviert ist, werden folgende Daten an den Server übertragen und dort gespeichert:',
-    syncPrivacyItem1: 'Deine Todos (Titel, Notizen, Termine, Erledigungsstatus), vollständig Ende-zu-Ende verschlüsselt',
-    syncPrivacyItem2: 'Eine Datensatz-ID, abgeleitet aus einem Hash deines Sync-Schlüssels',
-    syncPrivacyItem3: 'Ein Versionszähler zur Synchronisation und Konflikterkennung',
-    syncPrivacyH2: 'Wie werden die Daten geschützt?',
-    syncPrivacyEncrypt: 'Alle Todo-Daten werden lokal auf deinem Gerät mit AES-256-GCM verschlüsselt, bevor sie an den Server gesendet werden. Der Verschlüsselungsschlüssel wird aus deinem Sync-Schlüssel mittels PBKDF2 mit 100.000 Iterationen abgeleitet. Der Server erhält niemals den Verschlüsselungsschlüssel und kann deine Daten nicht entschlüsseln.',
-    syncPrivacyH3: 'Wie werden die Daten gespeichert?',
-    syncPrivacyHow: 'Die verschlüsselten Daten werden auf dem Server als undurchsichtige Datei gespeichert, die ausschließlich über die gehashte Datensatz-ID referenziert wird. Es werden keine Konten, Namen, E-Mail-Adressen oder personenbezogenen Daten verwendet. Der Server kann den Inhalt deiner Todos nicht einsehen.',
-    syncPrivacyH4: 'Zugriff und Kontrolle',
-    syncPrivacyRights: 'Jede Person mit dem vollständigen Sync-Schlüssel kann auf die verschlüsselten Daten zugreifen und sie verändern. Du kannst die auf dem Server gespeicherten Daten jederzeit herunterladen oder vollständig löschen. Das Deaktivieren der Synchronisation löscht die Serverdaten nicht automatisch.',
-    syncPrivacyH5: 'Protokollierung und Tracking',
-    syncPrivacyNo: 'Es werden keine Analyse-, Werbe-, Cookie- oder Tracking-Technologien eingesetzt. Der Server kann IP-Adressen und Zeitpunkte von Anfragen kurzfristig aus technischen Gründen zur Sicherheit und Missbrauchsprävention protokollieren. Diese Protokolle werden nicht mit Nutzerprofilen verknüpft.',
-    syncPrivacyH6: 'Geteilte Ordner',
-    syncPrivacyFolder: 'Zusätzlich zur vollständigen Synchronisation können einzelne Ordner über einen separaten Sync-Schlüssel mit anderen geteilt werden. Jeder geteilte Ordner erzeugt einen unabhängigen verschlüsselten Datensatz auf dem Server mit eigenem Schlüssel. Geteilte Ordner werden mit dem gleichen AES-256-GCM Standard verschlüsselt. Der Ordner-Sync-Schlüssel gewährt nur Zugriff auf diesen einen Ordner, nicht auf andere Todos oder die Haupt-Synchronisation. Wenn du das Teilen eines Ordners beendest, bleiben die Serverdaten bestehen, bis sie explizit gelöscht werden.',
-    installApp: 'App installieren',
-    installSub: 'Zum Startbildschirm hinzufügen für Offline-Nutzung und natives App-Erlebnis',
-    install: 'Installieren',
-    folders: 'Ordner', folder: 'Ordner', allFolders: 'Alle',
-    noFolder: 'Kein Ordner', manageFolders: 'Ordner verwalten',
-    foldersSub: 'Organisiere deine Todos in Ordnern',
-    folderName: 'Ordnername', folderNamePH: 'z.B. Arbeit, Privat...',
-    addFolder: 'Hinzufügen', editFolder: 'Ordner bearbeiten', deleteFolder: 'Ordner löschen',
-    deleteFolderTitle: 'Ordner löschen',
-    deleteFolderMsg: 'Diesen Ordner löschen? Todos in diesem Ordner werden behalten, aber nicht mehr zugeordnet.',
-    folderColor: 'Farbe',
-    renameFolderPH: 'Neuer Name...',
-    hide: 'Auf diesem Gerät ausblenden', show: 'Auf diesem Gerät einblenden',
-    supportProject: 'Dieses Projekt unterstützen',
-    syncTooLargeTitle: 'Sync-Limit erreicht',
-    syncTooLargeMsg: 'Deine Daten überschreiten das 512 KB Sync-Limit. Entferne alte Todos über Aufräumen, um weiter zu synchronisieren.',
-    installHow: 'Anleitung',
-    installIOSSub: 'In Safari: Teilen → Zum Home-Bildschirm',
-    installIOSHowMsg: 'In Safari tippe auf Teilen und dann auf "Zum Home-Bildschirm".',
-    installFirefoxSub: 'Firefox: Menü → Installieren / Zum Startbildschirm',
-    installFirefoxHowMsg: 'Öffne das Firefox-Menü und wähle Installieren oder Zum Startbildschirm hinzufügen.',
-    syncDataSize: 'Sync-Daten',
-    syncDataSub: 'Todo-Daten die auf dem Server gespeichert werden',
-    cacheSize: 'App-Cache',
-    cacheSub: 'Im Browser gespeicherte Daten',
-    versionConflict: 'Datenkonflikt',
-    versionConflictMessage: 'Die synchronisierten Daten haben sich seit der letzten Verbindung geändert.',
-    dataDiscard: 'Meine Änderungen verwerfen',
-    dataOverwrite: 'Mit meinen Änderungen überschreiben',
-    folderSync: 'Geteilter Ordner',
-    folderSyncSetup: 'Ordner teilen',
-    folderSyncDesc: 'Diesen Ordner über einen separaten Sync-Schlüssel mit anderen teilen',
-    folderSyncStop: 'Teilen beenden',
-    folderSyncDelete: 'Geteilte Daten löschen',
-    folderSyncNote: 'Jeder mit diesem Schlüssel hat Zugriff auf alle Todos in diesem Ordner.',
-    folderSyncJoinTitle: 'Geteiltem Ordner beitreten',
-    folderSyncJoinMsg: (remote, local) => `Geteilter Ordner hat ${remote} Todo(s). Du hast ${local} lokale Todo(s) in diesem Ordner. Wie möchtest du fortfahren?`,
-    cleanupWillRemove: 'Wird entfernt:',
-    cleanupMore: n => `… und ${n} weitere.`,
-    cleanupReasonSingle: d => `Einzeln (${d})`,
-    cleanupReasonRange: (s, e) => `Zeitraum (${s} → ${e})`,
-    cleanupReasonUntilDone: (done, target) => `Bis erledigt (${done}/${target})`,
-    cleanupReasonRecurring: d => `Wiederkehrend (endete ${d})`,
-    sourceCode: 'Quellcode auf',
-    welcomeTour: 'Willkommenstour',
-    welcomeTourSub: 'Einführung und Funktionsübersicht wiederholen',
-    welcomeTourBtn: 'Nochmal',
-    welcomeSkip: 'Überspringen',
-    welcomeNext: 'Weiter',
-    welcomeBack: 'Zurück',
-    welcomeDone: 'Los geht\'s',
-    w1Title: 'Willkommen bei TODO.73.nu',
-    w1Sub: 'Eine einfache, private Todo-App mit Ordnern, wiederkehrenden Aufgaben, verschlüsseltem Sync und Offline-Unterstützung.',
-    w2Title: 'Flexible Planung',
-    w2Single: 'Einzelner Tag',
-    w2Range: 'Zeitraum',
-    w2Recurring: 'Wiederkehrend',
-    w2Span: 'Zeitspanne',
-    w2Ex1: 'Geburtstagsgeschenk kaufen',
-    w2Ex2: '3 Kapitel lesen',
-    w2Ex3: 'Pflanzen gießen',
-    w2Ex4: 'Laufen gehen',
-    w2Ex5: 'Bad putzen',
-    w2EveryNWeeks: 'Alle 2 Wochen',
-    w2Loose: '~Monatlich',
-    w3Title: 'Ordner & Organisation',
-    w3Ex1: 'Arbeit',
-    w3Ex2: 'Privat',
-    w3Ex3: 'Geteilt',
-    w3Ex4: 'Fitness',
-    w3Feat1: 'Farblich markiert',
-    w3Feat2: 'Pro Gerät aus- oder einblenden',
-    w3Feat3: 'Ordner mit anderen teilen',
-    w4Title: 'Ende-zu-Ende verschlüsselter Sync',
-    w4Device: 'Dein Gerät',
-    w4Encrypted: 'Verschlüsselt',
-    w4Server: 'Server',
-    w4Feat1: 'AES-256 Ende-zu-Ende Verschlüsselung',
-    w4Feat2: 'Keine Konten, kein Tracking, keine Werbung',
-    w4Feat3: 'Funktioniert offline, synchronisiert automatisch',
-    w5Title: 'Schnelltipps',
-    w5Tip1T: 'Tage wechseln',
-    w5Tip1D: 'Pfeiltasten oder Pfeil-Buttons nutzen',
-    w5Tip2T: 'Todos sortieren',
-    w5Tip2D: 'Lang drücken oder ziehen zum Umsortieren',
-    w5Tip3T: 'Todo-Details',
-    w5Tip3D: 'Antippen für Details, Überspringen oder Bearbeiten',
-    w5Tip4T: 'Als App installieren',
-    w5Tip4D: 'Mehr Info in den Einstellungen',
-    resetMsgShared: names => `Alle lokalen Todos werden unwiderruflich gelöscht. Du hast geteilte Ordner (${names})! Deren Serverdaten bleiben für andere Nutzer erhalten, es sei denn du löschst sie.`,
-    resetKeepShared: 'Nur Lokal Zurücksetzen',
-    resetDeleteShared: 'Zurücksetzen & Serverdaten löschen',
-    loose: 'Flexibel',
-    looseMonthlyDesc: 'Beliebiger Tag, einmal im Monat bis erledigt',
-    looseYearlyDesc: 'Beliebiger Tag, einmal im Jahr bis erledigt',
-    anyMonth: 'Beliebiger Monat',
-    looseMonthly: '~Monatlich',
-    looseYearly: '~Jährlich',
-    looseYearlyMonth: m => `~Jährlich im ${MONTHS_DE[m]}`,
-    every: 'Alle',
-    weeksUnit: 'Woche(n)',
-    monthsUnit: 'Monat(e)',
-    everyNWeeks: n => `Alle ${n} Wochen`,
-    everyNMonths: n => `Alle ${n} Monate`,
-  }
-};
-
-function L(key) { return I18N[Store.settings.lang]?.[key] ?? I18N.en[key] ?? key; }
-function LF(key, ...args) { const val = I18N[Store.settings.lang]?.[key] ?? I18N.en[key]; return typeof val === 'function' ? val(...args) : val; }
+function L(key) { return I18N[Store.settings.lang]?.[key] ?? I18N.en?.[key] ?? key; }
+function LF(key, ...args) { const val = I18N[Store.settings.lang]?.[key] ?? I18N.en?.[key]; return typeof val === 'function' ? val(...args) : val; }
 
 const Util = {
   dateStr(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
@@ -1892,12 +1511,14 @@ const App = {
   editingId: null,
   showSkipped: false,
 
-  init() {
+  async init() {
     Store.load();
     Store.loadHidden();
     Store.loadIsolated();
     Store.loadNoSync();
     this.applyTheme();
+    await loadLang('en');
+    if (Store.settings.lang !== 'en') await loadLang(Store.settings.lang);
     this.render();
     this._bindKeys();
     Sync.init().then(() => {
@@ -2791,13 +2412,13 @@ const Settings = {
         <div class="setting-action"><div class="toggle-track ${!isDark ? 'on' : ''}" onclick="Settings.toggleTheme()"><div class="toggle-thumb"></div></div></div>
       </div>
 
-      <div class="setting-row">
-        <div class="setting-info"><div class="setting-label">${L('language')}</div><div class="setting-desc">${L('langSub')}</div></div>
+      <div class="setting-row wrap">
+        <div class="setting-info">
+          <div class="setting-label">${L('language')} <a href="/i18n/editor" target="_blank" style="font-size:0.68rem;color:var(--text-3);font-weight:400;text-decoration:underline;margin-left:4px">Help translate</a></div>
+          <div class="setting-desc">${L('langSub')}</div>
+        </div>
         <div class="setting-action">
-          <div class="lang-toggle">
-            <button class="lang-btn ${!isDE ? 'active' : ''}" onclick="Settings.setLang('en')">EN</button>
-            <button class="lang-btn ${isDE ? 'active' : ''}" onclick="Settings.setLang('de')">DE</button>
-          </div>
+          <div class="lang-toggle" id="langToggle"></div>
         </div>
       </div>
 
@@ -2897,6 +2518,7 @@ const Settings = {
       <div class="footer-credits">&copy; ${new Date().getFullYear()} <a href="https://www.leroch.net" target="_blank" rel="noopener">Christian Leroch</a>
         | ${L('sourceCode')} <a href="https://github.com/nirastich/todo" target="_blank" rel="noopener">Github</a>
       </div>`;
+    Settings.renderLangs();
     Settings.updateStorageSize();
     FolderDrag.bind();
   },
@@ -2972,7 +2594,15 @@ const Settings = {
     Store.saveSettings(); App.applyTheme(); this.render();
   },
 
-  setLang(lang) { Store.settings.lang = lang; Store.saveSettings(); App.render(); this.render(); },
+  async setLang(lang) {
+    await loadLang(lang);
+    Store.settings.lang = lang;
+    Store.saveSettings();
+    Settings._langCache = null;
+    App.render();
+    this.render();
+  },
+  
   setAccent(color) {
     Store.settings.accent = color;
     Store.saveSettings();
@@ -2980,6 +2610,35 @@ const Settings = {
     document.querySelectorAll('.color-swatch').forEach(el => {
       el.classList.toggle('active', el.style.background === color);
     });
+  },
+  
+  _langCache: null,
+
+  async renderLangs() {
+    const el = document.getElementById('langToggle');
+    if (!el) return;
+    let langs = this._langCache;
+    if (!langs) {
+      try { langs = await (await fetch('/i18n/langs.json')).json(); this._langCache = langs; }
+      catch (e) { langs = { en: { native: 'English', builtin: true, complete: 100 }, de: { native: 'Deutsch', builtin: true, complete: 100 } }; }
+    }
+    const current = Store.settings.lang;
+    const builtIn = Object.entries(langs).filter(([, i]) => i.builtin);
+    const community = Object.entries(langs).filter(([, i]) => !i.builtin);
+
+    let html = builtIn.map(([code, info]) =>
+      `<button class="lang-btn ${code === current ? 'active' : ''}" onclick="Settings.setLang('${code}')">${code.toUpperCase()}</button>`
+    ).join('');
+
+    if (community.length) {
+      const currentCommunity = community.find(([c]) => c === current);
+      html += `<select class="lang-btn" style="padding:5px 8px;font-size:0.78rem;background:${currentCommunity ? 'var(--accent)' : 'var(--surface-2)'};color:${currentCommunity ? '#000' : 'var(--text)'};border:1px solid ${currentCommunity ? 'var(--accent)' : 'var(--border)'};border-radius:var(--radius-sm);cursor:pointer" onchange="if(this.value)Settings.setLang(this.value)">
+        <option value="" ${!currentCommunity ? 'selected' : ''}>More…</option>
+        ${community.map(([code, info]) => `<option value="${code}" ${code === current ? 'selected' : ''}>${info.native || info.name} (${code}) ${info.complete < 100 ? info.complete + '%' : ''}</option>`).join('')}
+      </select>`;
+    }
+
+    el.innerHTML = html;
   },
 
   export() {
