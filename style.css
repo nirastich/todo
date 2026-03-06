@@ -33,7 +33,12 @@
   --danger-bg: rgba(229, 62, 62, 0.08);
 }
 
-html { font: 16px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+html { 
+  font: 16px/1.2 system-ui, 
+  -apple-system, Segoe UI, Roboto, 
+  Arial, sans-serif; 
+  touch-action: manipulation;
+}
 
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
