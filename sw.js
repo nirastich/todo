@@ -1,4 +1,4 @@
-const CACHE_NAME = 'v1'; //Update this to push changes
+const CACHE_NAME = 'v1';
 
 const PRECACHE_URLS = [
   '/',
@@ -6,6 +6,8 @@ const PRECACHE_URLS = [
   '/style.css',
   '/script.js',
   '/qr.js',
+  '/i18n/langs.json',
+  '/i18n/en.js',
   '/site.webmanifest'
 ];
 
