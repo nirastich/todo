@@ -913,7 +913,7 @@ select.form-input {
 
 /* --- Lang toggle --- */
 
-.lang-toggle { display: flex; gap: 6px; }
+.lang-toggle { display: flex; gap: 6px; justify-content: right;}
 
 .lang-btn {
   padding: 6px 14px;
@@ -926,6 +926,78 @@ select.form-input {
 }
 
 .lang-btn.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+.lang-credit {
+  text-align: right;
+  flex-basis: 100%;
+  font-size: 0.8rem;
+  color: var(--text-3);
+  margin-top: 4px;
+  line-height: 1.4;
+  max-width: 50vw;
+}
+.lang-credit a {
+  color: var(--text-2);
+  text-decoration: underline;
+}
+
+.lang-select {
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.lang-select.active {
+  background-color: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+}
+
+.lang-credit-wrap {
+  position: relative;
+  display: inline;
+}
+
+.lang-credit-more {
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.lang-credit-more:hover {
+  color: var(--text-2);
+}
+
+.lang-credit-drop {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.lang-credit-drop.open {
+  display: block;
+}
+
+.lang-credit-drop a {
+  color: var(--text-2);
+  text-decoration: underline;
+}
+
+.lang-credit-drop div + div {
+  margin-top: 3px;
+}
 
 /* --- Color picker --- */
 
