@@ -1,0 +1,20 @@
+{
+    "en": {
+        "name": "English",
+        "native": "English",
+        "builtin": true,
+        "complete": 100,
+        "author": "",
+        "author_url": "",
+        "credits": []
+    },
+    "de": {
+        "name": "German",
+        "native": "Deutsch",
+        "builtin": true,
+        "complete": 100,
+        "author": "",
+        "author_url": "",
+        "credits": []
+    }
+}
