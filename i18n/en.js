@@ -38,7 +38,7 @@
     all: 'All', single: 'Single', range: 'Range', to: 'to', ok: 'OK',
     noYet: 'No todos yet.', everyDay: 'Every day', weeklyOn: 'Weekly',
     biweeklyOn: 'Every other week', custom: 'Custom',
-    allDone: 'All done for today!', timesPerSpan: 'Times per span', untilDone: 'Until done',
+    allDone: 'All done for today!', timesPerSpan: 'Times per range', untilDone: 'Until done',
     notToday: 'Not today', showAgain: 'Show again',
     nHidden: function(n) { return n + ' hidden'; },
     isolated: 'Isolated',
