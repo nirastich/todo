@@ -36,7 +36,7 @@
     all: 'Alle', single: 'Einzeln', range: 'Zeitraum', to: 'bis', ok: 'OK',
     noYet: 'Noch keine Todos.', everyDay: 'Jeden Tag', weeklyOn: 'Wöchentlich',
     biweeklyOn: 'Alle 2 Wochen', custom: 'Benutzerdefiniert',
-    allDone: 'Alles erledigt für heute!', timesPerSpan: 'Mal pro Zeitspanne', untilDone: 'Bis erledigt',
+    allDone: 'Alles erledigt für heute!', timesPerSpan: 'Mal pro Zeitraum', untilDone: 'Bis erledigt',
     notToday: 'Nicht heute', showAgain: 'Wieder anzeigen',
     nHidden: function(n) { return n + ' ausgeblendet'; },
     isolated: 'Isoliert',
