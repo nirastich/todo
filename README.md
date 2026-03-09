@@ -128,6 +128,7 @@ Language files live in `/i18n/` as separate `.js` files loaded and cached on dem
 ├── sync.php            # Sync backend
 ├── sw.js               # Service worker
 ├── qr.js               # QR code generator
+├── lz.js               # LZ-Compression library
 ├── site.webmanifest    # PWA manifest
 └── i18n/               # Translations
     ├── en.js           # English (built-in)
