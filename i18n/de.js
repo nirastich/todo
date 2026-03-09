@@ -191,6 +191,8 @@
     weeksUnit: 'Woche(n)',
     monthsUnit: 'Monat(e)',
     everyNWeeks: function(n) { return 'Alle ' + n + ' Wochen'; },
-    everyNMonths: function(n) { return 'Alle ' + n + ' Monate'; }
+    everyNMonths: function(n) { return 'Alle ' + n + ' Monate'; },
+    error: 'Fehler',
+    storageCorrupt: 'Einige Daten konnten nicht geladen werden und wurden zurückgesetzt: '
   };
 })();
