@@ -1,114 +1,5 @@
 import { qrDataUrl } from '/qr.js';
-const LZString = (function () {
-  const f = String.fromCharCode;
-
-  function compress(input, bpc, getChar) {
-    if (input == null) return "";
-    let i, val, dict = {}, dictCreate = {}, cc = "", wc = "", w = "",
-        enlargeIn = 2, dictSize = 3, numBits = 2, data = [], dataVal = 0, dataPos = 0;
-
-    for (let ii = 0; ii < input.length; ii++) {
-      cc = input.charAt(ii);
-      if (!dict.hasOwnProperty(cc)) { dict[cc] = dictSize++; dictCreate[cc] = true; }
-      wc = w + cc;
-      if (dict.hasOwnProperty(wc)) { w = wc; }
-      else {
-        if (dictCreate.hasOwnProperty(w)) {
-          if (w.charCodeAt(0) < 256) {
-            for (i = 0; i < numBits; i++) { dataVal <<= 1; if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; }
-            val = w.charCodeAt(0);
-            for (i = 0; i < 8; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-          } else {
-            val = 1;
-            for (i = 0; i < numBits; i++) { dataVal = (dataVal << 1) | val; if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val = 0; }
-            val = w.charCodeAt(0);
-            for (i = 0; i < 16; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-          }
-          enlargeIn--;
-          if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-          delete dictCreate[w];
-        } else {
-          val = dict[w];
-          for (i = 0; i < numBits; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-        }
-        enlargeIn--;
-        if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-        dict[wc] = dictSize++;
-        w = String(cc);
-      }
-    }
-    if (w !== "") {
-      if (dictCreate.hasOwnProperty(w)) {
-        if (w.charCodeAt(0) < 256) {
-          for (i = 0; i < numBits; i++) { dataVal <<= 1; if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; }
-          val = w.charCodeAt(0);
-          for (i = 0; i < 8; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-        } else {
-          val = 1;
-          for (i = 0; i < numBits; i++) { dataVal = (dataVal << 1) | val; if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val = 0; }
-          val = w.charCodeAt(0);
-          for (i = 0; i < 16; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-        }
-        enlargeIn--;
-        if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-        delete dictCreate[w];
-      } else {
-        val = dict[w];
-        for (i = 0; i < numBits; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-      }
-      enlargeIn--;
-      if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-    }
-    val = 2;
-    for (i = 0; i < numBits; i++) { dataVal = (dataVal << 1) | (val & 1); if (dataPos == bpc - 1) { dataPos = 0; data.push(getChar(dataVal)); dataVal = 0; } else dataPos++; val >>= 1; }
-    while (true) { dataVal <<= 1; if (dataPos == bpc - 1) { data.push(getChar(dataVal)); break; } else dataPos++; }
-    return data.join("");
-  }
-
-  function decompress(length, resetVal, getNext) {
-    let dict = [], enlargeIn = 4, dictSize = 4, numBits = 3, entry = "", result = [],
-        w, c, data = { val: getNext(0), position: resetVal, index: 1 };
-    for (let i = 0; i < 3; i++) dict[i] = i;
-    let bits = 0, max = Math.pow(2, 2), power = 1;
-    while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; }
-    switch (bits) {
-      case 0: bits = 0; max = Math.pow(2, 8); power = 1; while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; } c = f(bits); break;
-      case 1: bits = 0; max = Math.pow(2, 16); power = 1; while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; } c = f(bits); break;
-      case 2: return "";
-    }
-    dict[3] = c; w = c; result.push(c);
-    while (true) {
-      if (data.index > length) return "";
-      bits = 0; max = Math.pow(2, numBits); power = 1;
-      while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; }
-      switch (c = bits) {
-        case 0: bits = 0; max = Math.pow(2, 8); power = 1; while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; } dict[dictSize++] = f(bits); c = dictSize - 1; enlargeIn--; break;
-        case 1: bits = 0; max = Math.pow(2, 16); power = 1; while (power != max) { let resb = data.val & data.position; data.position >>= 1; if (data.position == 0) { data.position = resetVal; data.val = getNext(data.index++); } bits |= (resb > 0 ? 1 : 0) * power; power <<= 1; } dict[dictSize++] = f(bits); c = dictSize - 1; enlargeIn--; break;
-        case 2: return result.join("");
-      }
-      if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-      entry = dict[c] ? dict[c] : (c === dictSize ? w + w.charAt(0) : null);
-      if (entry === null) return null;
-      result.push(entry);
-      dict[dictSize++] = w + entry.charAt(0);
-      enlargeIn--;
-      if (enlargeIn == 0) { enlargeIn = Math.pow(2, numBits); numBits++; }
-      w = entry;
-    }
-  }
-
-  return {
-    compressToUTF16(input) {
-      if (input == null) return "";
-      return compress(input, 15, a => f(a + 32)) + " ";
-    },
-    decompressFromUTF16(input) {
-      if (input == null) return "";
-      if (input === "") return null;
-      return decompress(input.length, 16384, i => input.charCodeAt(i) - 32);
-    }
-  };
-})();
+import LZString from '/lz.js';
 
 const Crypto = {
   _keyCache: {},
@@ -169,18 +60,19 @@ const Store = {
   settings: { theme: window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark', lang: (navigator.language || '').startsWith('de') ? 'de' : 'en', accent: '#76b852', activeFolder: null },
 
   load() {
+    this._loadErrors = [];
     try {
       const raw = localStorage.getItem('todo_data');
       if (raw) this.todos = JSON.parse(LZString.decompressFromUTF16(raw)) || [];
-    } catch (e) { this.todos = []; }
+    } catch (e) { this.todos = []; this._loadErrors.push('todos'); console.error('Failed to load todos:', e); }
     try {
       const raw = localStorage.getItem('todo_folders');
       if (raw) this.folders = JSON.parse(raw) || [];
-    } catch (e) { this.folders = []; }
+    } catch (e) { this.folders = []; this._loadErrors.push('folders'); console.error('Failed to load folders:', e); }
     try {
       const s = JSON.parse(localStorage.getItem('todo_settings'));
       if (s) this.settings = { ...this.settings, ...s };
-    } catch (e) {}
+    } catch (e) { this._loadErrors.push('settings'); }
   },
   
   loadHidden() {
@@ -249,8 +141,8 @@ const Util = {
     return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
   },
   weeksDiff(d1, d2) {
-    const a = new Date(d1); a.setHours(0, 0, 0, 0);
-    const b = new Date(d2); b.setHours(0, 0, 0, 0);
+    const a = new Date(d1); a.setHours(12, 0, 0, 0);
+    const b = new Date(d2); b.setHours(12, 0, 0, 0);
     const da = a.getDay() || 7; a.setDate(a.getDate() - da + 1);
     const db = b.getDay() || 7; b.setDate(b.getDate() - db + 1);
     return Math.round((b - a) / (7 * 864e5));
@@ -552,11 +444,18 @@ const Modal = {
     if (name === 'list')     { document.getElementById('listModalTitle').textContent = L('allTodos'); ListView.render(); }
     if (name === 'settings') { document.getElementById('settingsModalTitle').textContent = L('settings'); Settings.render(); }
     if (name === 'detail')   { document.getElementById('detailModalTitle').textContent = L('todoDetails'); }
-    requestAnimationFrame(() => document.getElementById(name + 'Modal').classList.add('open'));
+    this._returnFocus = document.activeElement;
+    requestAnimationFrame(() => {
+        const modal = document.getElementById(name + 'Modal');
+        modal.classList.add('open');
+        const target = modal.querySelector('.btn, .btn-outline, .btn-primary, .modal-close, input, button');
+        if (target) target.focus({ preventScroll: true });
+    });
   },
   close(name) {
     document.getElementById(name + 'Modal').classList.remove('open');
     if (name === 'add') App.editingId = null;
+    if (this._returnFocus) { this._returnFocus.focus({ preventScroll: true }); this._returnFocus = null; }
   },
   confirm(title, msg, buttons) {
     document.getElementById('confirmTitle').textContent = title;
@@ -666,6 +565,7 @@ class SyncChannel {
     this._log('localChange', 'scheduling push in 500ms');
     clearTimeout(this._pushTimer);
     this._pushTimer = setTimeout(() => this.push(), 500);
+    if (this._pushing) this._dirty = true;
   }
 
   async push(force) {
@@ -1513,6 +1413,13 @@ const App = {
 
   async init() {
     Store.load();
+    if (Store._loadErrors.length) {
+      setTimeout(() => Modal.confirm(
+        L('error'),
+        (L('storageCorrupt')) + Store._loadErrors.join(', '),
+        [{ label: L('ok'), cls: 'btn-outline', action() {} }]
+      ), 500);
+    }
     Store.loadHidden();
     Store.loadIsolated();
     Store.loadNoSync();
@@ -1552,6 +1459,15 @@ const App = {
     if (e) e.stopPropagation();
     this.showSkipped = !this.showSkipped;
     this.render();
+    requestAnimationFrame(() => {
+        if (this.showSkipped) {
+            const btn = document.querySelector('.todo-item.skipped .btn');
+            if (btn) btn.focus({ preventScroll: true });
+        } else {
+            const toggle = document.querySelector('.skipped-toggle');
+            if (toggle) toggle.focus({ preventScroll: true });
+        }
+    });
   },
 
   _renderFolderDropdown() {
@@ -1633,14 +1549,20 @@ const App = {
   toggleFolderMenu(e) {
     e.stopPropagation();
     const menu = document.getElementById('folderMenu');
+    const btn = document.getElementById('folderBtn');
     const isOpen = menu.classList.toggle('open');
+    btn.setAttribute('aria-expanded', isOpen);
+    menu.setAttribute('role', 'menu');
     if (isOpen) {
       const close = (ev) => { if (!menu.contains(ev.target)) { menu.classList.remove('open'); document.removeEventListener('click', close); } };
       setTimeout(() => document.addEventListener('click', close), 0);
     }
   },
 
-  closeFolderMenu() { document.getElementById('folderMenu').classList.remove('open'); },
+  closeFolderMenu() {
+    document.getElementById('folderMenu').classList.remove('open');
+    document.getElementById('folderBtn').setAttribute('aria-expanded', 'false');
+  },
 
   render() {
     const ds = Util.dateStr(this.currentDate);
@@ -1789,12 +1711,9 @@ const App = {
         const cd = document.getElementById('confirmDialog');
         if (cd.classList.contains('open')) {
           cd.classList.remove('open');
-          this._allChannels().forEach(c => {
-            if (c._dirtyConflictResolve) { const fn = c._dirtyConflictResolve; c._dirtyConflictResolve = null; fn(); }
-          });
           return;
         }
-        for (const name of ['detail', 'add', 'list', 'settings', 'welcomeModal']) {
+        for (const name of ['detail', 'add', 'list', 'settings', 'welcome']) {
           const el = document.getElementById(name + 'Modal');
           if (el.classList.contains('open')) { Modal.close(name); return; }
         }
@@ -1802,6 +1721,20 @@ const App = {
       if (!document.querySelector('.modal.open') && !document.querySelector('.confirm-overlay.open')) {
         if (e.key === 'ArrowLeft') this.nav(-1);
         if (e.key === 'ArrowRight') this.nav(1);
+      }
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const item = e.target.closest('.todo-item:not(.skipped)');
+      if (!item) return;
+      e.preventDefault();
+      const id = item.dataset.id;
+      if (!id) return;
+      const ds = Util.dateStr(this.currentDate);
+      if (e.key === ' ') {
+        Todos.toggleDone(id, ds);
+      } else {
+        DetailView.show(id, ds);
       }
     });
   },
