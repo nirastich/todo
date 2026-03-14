@@ -1425,7 +1425,10 @@ const App = {
     Store.loadNoSync();
     this.applyTheme();
     await loadLang('en');
-    if (Store.settings.lang !== 'en') await loadLang(Store.settings.lang);
+    if (Store.settings.lang !== 'en') {
+      try { await loadLang(Store.settings.lang); }
+      catch (e) { console.warn('Failed to load lang:', Store.settings.lang, e); }
+    }
     this.render();
     this._bindKeys();
     Sync.init().then(() => {
