@@ -181,6 +181,7 @@ button:focus-visible,
   overflow-y: scroll;
   -ms-overflow-style: none;
   scrollbar-width: none;
+  transition: opacity 0.15s ease-in;
 }
 
 #scroll-root::-webkit-scrollbar {
