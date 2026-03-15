@@ -1430,6 +1430,7 @@ const App = {
       catch (e) { console.warn('Failed to load lang:', Store.settings.lang, e); }
     }
     this.render();
+    document.getElementById('scroll-root').style.opacity = '';
     this._bindKeys();
     Sync.init().then(() => {
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
