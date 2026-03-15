@@ -132,6 +132,15 @@ input[type="number"] {
   -moz-appearance: textfield;
 }
 
+input[type="date"],
+input[type="time"] {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  min-width: 0;
+  min-height: 48px;
+}
+
 /*  Accessibility: Focus Styles */
 
 :focus-visible {
@@ -948,6 +957,10 @@ select.form-input {
   padding-right: 32px;
 }
 
+input[type="date"].form-input {
+  min-width: 0;
+}
+
 .form-row {
   display: flex;
   gap: var(--space-10);
@@ -955,6 +968,7 @@ select.form-input {
 
 .form-row .form-group {
   flex: 1;
+  min-width: 0;
 }
 
 .form-note {
