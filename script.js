@@ -1794,7 +1794,25 @@ const AddForm = {
     });
 
     this._renderSchedule(type, existing);
-    setTimeout(() => document.getElementById('f_title').focus(), 300);
+    setTimeout(() => {
+      const input = document.getElementById('f_title');
+      input.focus({ preventScroll: true });
+      const vv = window.visualViewport;
+      if (vv) {
+        let debounce;
+        const onResize = () => {
+          clearTimeout(debounce);
+          debounce = setTimeout(() => {
+            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            vv.removeEventListener('resize', onResize);
+          }, 120);
+        };
+        vv.addEventListener('resize', onResize);
+        setTimeout(() => vv.removeEventListener('resize', onResize), 2000);
+      } else {
+        setTimeout(() => input.scrollIntoView({ behavior: 'smooth', block: 'center' }), 380);
+      }
+    }, 300);
   },
 
   _renderSchedule(type, existing) {
@@ -3635,4 +3653,6 @@ window.SyncChannel = SyncChannel;
 window.SwipeNav = SwipeNav;
 window.ModalSwipe = ModalSwipe;
 window.Welcome = Welcome;
+window.L = L;
+window.LF = LF;
 App.init();
