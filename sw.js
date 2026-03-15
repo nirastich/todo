@@ -1,4 +1,4 @@
-const CACHE_NAME = 'v1'; // Edit this to push changes
+const CACHE_NAME = 'v1'; // Edit this to push changes, this also displays in the settings.
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -34,7 +34,8 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes('sync.php')) return;
-
+  if (url.pathname.startsWith('/i18n/editor')) return;
+  
   const isNavigation = req.mode === 'navigate' || req.destination === 'document';
   const cacheKey = isNavigation ? '/index.html' : req;
 
