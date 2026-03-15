@@ -448,13 +448,14 @@ const Modal = {
     requestAnimationFrame(() => {
         const modal = document.getElementById(name + 'Modal');
         modal.classList.add('open');
+        if (name === 'add') KbScroll.bind(modal);
         const target = modal.querySelector('.btn, .btn-outline, .btn-primary, .modal-close, input, button');
         if (target) target.focus({ preventScroll: true });
     });
   },
   close(name) {
     document.getElementById(name + 'Modal').classList.remove('open');
-    if (name === 'add') App.editingId = null;
+    if (name === 'add') { App.editingId = null; KbScroll.unbind(); }
     if (this._returnFocus) { this._returnFocus.focus({ preventScroll: true }); this._returnFocus = null; }
   },
   confirm(title, msg, buttons) {
@@ -1797,22 +1798,7 @@ const AddForm = {
     this._renderSchedule(type, existing);
     setTimeout(() => {
       const input = document.getElementById('f_title');
-      input.focus({ preventScroll: true });
-      const vv = window.visualViewport;
-      if (vv) {
-        let debounce;
-        const onResize = () => {
-          clearTimeout(debounce);
-          debounce = setTimeout(() => {
-            input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            vv.removeEventListener('resize', onResize);
-          }, 120);
-        };
-        vv.addEventListener('resize', onResize);
-        setTimeout(() => vv.removeEventListener('resize', onResize), 2000);
-      } else {
-        setTimeout(() => input.scrollIntoView({ behavior: 'smooth', block: 'center' }), 380);
-      }
+      if (input) input.focus({ preventScroll: true });
     }, 300);
   },
 
@@ -2482,9 +2468,20 @@ const Settings = {
         </a>
       </div>
 
-      <div class="footer-credits">&copy; ${new Date().getFullYear()} <a href="https://www.leroch.net" target="_blank" rel="noopener">Christian Leroch</a>
-        | ${L('sourceCode')} <a href="https://github.com/nirastich/todo" target="_blank" rel="noopener">Github</a>
+      <div class="footer-credits">
+        <span id="appVersionTag">…</span>
+        - &copy; ${new Date().getFullYear()} <a href="https://www.leroch.net" target="_blank" rel="noopener">Christian Leroch</a>
+        - ${L('sourceCode')} <a href="https://github.com/nirastich/todo" target="_blank" rel="noopener">Github</a>
       </div>`;
+    (async () => {
+      const el = document.getElementById('appVersionTag');
+      if (!el) return;
+      try {
+        const names = await caches.keys();
+        const ver = names.find(n => /^v\d+/.test(n));
+        el.textContent = ver || 'v?';
+      } catch (e) { el.textContent = 'v?'; }
+    })();
     Settings.renderLangs();
     Settings.updateStorageSize();
     FolderDrag.bind();
@@ -3637,6 +3634,26 @@ const ModalSwipe = {
   }
 };
 
+const KbScroll = {
+  _off: null,
+  bind(el) {
+    this.unbind();
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onFocus = (e) => {
+      if (!e.target.matches('input,textarea,select')) return;
+      const t = e.target;
+      const check = () => { if (document.activeElement === t && t.getBoundingClientRect().top < 60) t.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+      const onR = () => setTimeout(check, 150);
+      vv.addEventListener('resize', onR, { once: true });
+      setTimeout(() => { vv.removeEventListener('resize', onR); check(); }, 1500);
+    };
+    el.addEventListener('focusin', onFocus);
+    this._off = () => el.removeEventListener('focusin', onFocus);
+  },
+  unbind() { if (this._off) { this._off(); this._off = null; } }
+};
+
 window.FolderDrag = FolderDrag;
 window.App = App;
 window.Modal = Modal;
@@ -3656,4 +3673,5 @@ window.ModalSwipe = ModalSwipe;
 window.Welcome = Welcome;
 window.L = L;
 window.LF = LF;
+window.KbScroll = KbScroll;
 App.init();
