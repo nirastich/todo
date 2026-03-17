@@ -90,7 +90,7 @@ These can be adjusted inside `sync.php`.
 The app uses a service worker (`sw.js`) for offline capability and fast repeat loads.
 
 **On install**, the following files are precached with `cache: 'reload'` to always fetch fresh copies:
-`/`, `/index.html`, `/style.css`, `/script.js`, `/qr.js`, `/site.webmanifest`
+`/`, `/index.html`, `/style.css`, `/script.js`, `/qr.js`, `/lz.js`, `/site.webmanifest`
 
 **On activate**, all caches from previous versions are deleted. The cache is versioned (`CACHE_NAME = 'v1'`), so bumping this string causes old caches to be purged on the next visit.
 
