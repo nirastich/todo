@@ -425,7 +425,7 @@ const Todos = {
       case 'monthly': {
         const mi = r.interval || 1;
         if (r.loose) return mi > 1 ? LF('everyNMonths', mi) + ` (${L('loose').toLowerCase()})` : L('looseMonthly');
-        if (mi > 1) return LF('everyNMonths', mi) + `, ${ordinal(r.dayOfMonth)}`;
+        if (mi > 1) return LF('everyNMonths', mi) + `, ${LF('ordinal', r.dayOfMonth)}`;
         return LF('monthlyOn', r.dayOfMonth);
       }
       case 'yearly':
@@ -1920,7 +1920,9 @@ const AddForm = {
         <div id="looseFixedFields" ${loose ? 'style="display:none"' : ''}>
           <label class="form-label" style="margin-top:12px">${L('dayOfMonth')}</label>
           <select class="form-input form-input-narrow" id="f_dayOfMonth">
-            ${Array.from({length: 31}, (_, i) => i + 1).map(d => `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${ordinal(d)}</option>`).join('')}
+            ${Array.from({length: 31}, (_, i) => i + 1).map(d =>
+              `<option value="${d}" ${r.dayOfMonth === d ? 'selected' : ''}>${LF('ordinal', d)}</option>`
+            ).join('')}
           </select>
         </div>
         <div class="toggle-row" style="margin-top:12px">
