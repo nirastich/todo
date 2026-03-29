@@ -2,6 +2,7 @@
   var MONTHS = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   function ordinal(n) { return n + '.'; }
   (window._i18n = window._i18n || {}).de = {
+    ordinal: ordinal,
     add: 'Neu', allTodos: 'Alle Todos', settings: 'Einstellungen', todoDetails: 'Todo Details',
     addTodo: 'Todo hinzufügen', editTodo: 'Todo bearbeiten', title: 'Titel',
     titlePH: 'Was muss erledigt werden?', notes: 'Notizen', notesPH: 'Optionale Details...',
