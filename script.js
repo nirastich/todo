@@ -11,7 +11,13 @@ const Crypto = {
     this._keyCache[fullSyncKey] = key;
     return key;
   },
-  clearKeyCache() { this._keyCache = {}; },
+  clearKeyCache(fullSyncKey) {
+    if (fullSyncKey) {
+      delete this._keyCache[fullSyncKey];
+    } else {
+      this._keyCache = {};
+    }
+  },
   async getServerId(fullSyncKey) {
     const enc = new TextEncoder();
     const hash = await window.crypto.subtle.digest('SHA-256', enc.encode(fullSyncKey));
@@ -57,7 +63,7 @@ const FOLDER_COLORS = ['#4A9EFF','#A78BFA','#FB923C','#EF4444','#10B981','#F472B
 const Store = {
   todos: [],
   folders: [],
-  settings: { theme: window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark', lang: (navigator.language || '').startsWith('de') ? 'de' : 'en', accent: '#76b852', activeFolder: null },
+  settings: { theme: window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark', lang: (navigator.language || '').startsWith('de') ? 'de' : 'en', accent: '#76b852', activeFolder: null, activeTags: [], showTagsOnTodos: false },
 
   load() {
     this._loadErrors = [];
@@ -226,6 +232,48 @@ const Folders = {
   },
 };
 
+const DEFAULT_TAGS = ['Urgent', 'Low priority', 'Reminder'];
+const TAG_ORDER = { 'Urgent': 0, 'Reminder': 1, 'Low priority': 2 };
+const PRESET_TAG_LABEL_KEYS = {
+  'Urgent': 'urgent',
+  'Low priority': 'lowPriority',
+  'Reminder': 'reminder'
+};
+
+function tagLabel(tag) {
+  const key = PRESET_TAG_LABEL_KEYS[tag];
+  return key ? L(key) : tag;
+}
+
+function normalizeTagInput(tag) {
+  const trimmed = tag.trim();
+  if (!trimmed) return '';
+  const normalized = trimmed.toLowerCase();
+
+  const preset = DEFAULT_TAGS.find(t =>
+    t.toLowerCase() === normalized || tagLabel(t).toLowerCase() === normalized
+  );
+
+  return preset || trimmed;
+}
+
+const Tags = {
+  getAll() {
+    const fromTodos = new Set();
+    Store.todos.forEach(t => { if (t.tags) t.tags.forEach(tag => fromTodos.add(tag)); });
+    DEFAULT_TAGS.forEach(tag => fromTodos.add(tag));
+    return [...fromTodos].sort((a, b) => {
+      const oa = TAG_ORDER[a] !== undefined ? TAG_ORDER[a] : 100;
+      const ob = TAG_ORDER[b] !== undefined ? TAG_ORDER[b] : 100;
+      if (oa !== ob) return oa - ob;
+      return a.localeCompare(b);
+    });
+  },
+  hasTags() {
+    return Store.todos.some(t => t.tags && t.tags.length > 0);
+  }
+};
+
 const Todos = {
   isOnDate(todo, ds) {
     const d = Util.parseDate(ds);
@@ -371,8 +419,15 @@ const Todos = {
     if (!todo) return;
     if (!todo.skippedDates) todo.skippedDates = [];
     const idx = todo.skippedDates.indexOf(ds);
-    if (idx >= 0) todo.skippedDates.splice(idx, 1);
-    else todo.skippedDates.push(ds);
+    if (idx >= 0) {
+      todo.skippedDates.splice(idx, 1);
+    } else {
+      todo.skippedDates.push(ds);
+      if (todo.completedDates) {
+        const ci = todo.completedDates.indexOf(ds);
+        if (ci >= 0) todo.completedDates.splice(ci, 1);
+      }
+    }
     todo._modified = Date.now();
     Store.saveTodos(todo.folderId ? [todo.folderId] : null);
     App.render();
@@ -387,8 +442,15 @@ const Todos = {
     if (!todo) return;
     if (!todo.completedDates) todo.completedDates = [];
     const idx = todo.completedDates.indexOf(ds);
-    if (idx >= 0) todo.completedDates.splice(idx, 1);
-    else todo.completedDates.push(ds);
+    if (idx >= 0) {
+      todo.completedDates.splice(idx, 1);
+    } else {
+      todo.completedDates.push(ds);
+      if (todo.skippedDates) {
+        const si = todo.skippedDates.indexOf(ds);
+        if (si >= 0) todo.skippedDates.splice(si, 1);
+      }
+    }
     todo._modified = Date.now();
     Store.saveTodos(todo.folderId ? [todo.folderId] : null);
     App.render();
@@ -541,6 +603,7 @@ class SyncChannel {
 
   stop() {
     this._log('stop', { wasVersion: this.version });
+    const keyToEvict = this.fullSyncKey;
     this.enabled = false;
     this.fullSyncKey = null;
     this.serverId = null;
@@ -550,7 +613,7 @@ class SyncChannel {
     clearTimeout(this._pushTimer);
     this._stopPoll();
     this._saveState();
-    Crypto.clearKeyCache();
+    Crypto.clearKeyCache(keyToEvict);
   }
 
   resetActivity() {
@@ -569,9 +632,10 @@ class SyncChannel {
     if (this._pushing) this._dirty = true;
   }
 
-  async push(force) {
+  async push() {
     if (!this.enabled || !this.fullSyncKey || !this.serverId || this._pushing) return;
     this._pushing = true;
+    this._dirty = false;
     try {
       const payload = this._getPayload();
       this._log('push', `encrypting ${(payload.todos || []).length} todos, ${(payload.folders || payload.folder ? 1 : 0)} folder(s), v${this.version}`);
@@ -605,7 +669,6 @@ class SyncChannel {
       }
       const data = await res.json();
       if (data.ok) {
-        this._dirty = false;
         this.version = data.version;
         this._lastKnownRemoteIds = new Set((payload.todos || []).map(t => t.id));
         this._saveState();
@@ -720,7 +783,13 @@ class SyncChannel {
       m.skippedDates = unionSkipped;
       m._modified = Math.max(lt._modified || lt.created || 0, rt._modified || rt.created || 0);
       if (lt.title !== rt.title || lt.notes !== rt.notes || lt.time !== rt.time ||
-          lt.type !== rt.type || lt.folderId !== rt.folderId || lt.sortOrder !== rt.sortOrder) {
+          lt.type !== rt.type || lt.folderId !== rt.folderId || lt.sortOrder !== rt.sortOrder ||
+          JSON.stringify(lt.tags || []) !== JSON.stringify(rt.tags || []) ||
+          lt.date !== rt.date ||
+          lt.startDate !== rt.startDate ||
+          lt.endDate !== rt.endDate ||
+          lt.rangeCount !== rt.rangeCount ||
+          JSON.stringify(lt.recurrence || null) !== JSON.stringify(rt.recurrence || null)) {
         const lmod = lt._modified || lt.created || 0;
         const rmod = rt._modified || rt.created || 0;
         const source = lmod >= rmod ? lt : rt;
@@ -730,6 +799,7 @@ class SyncChannel {
         m.type = source.type;
         if (source.folderId) m.folderId = source.folderId; else delete m.folderId;
         if (source.sortOrder != null) m.sortOrder = source.sortOrder; else delete m.sortOrder;
+        if (source.tags) m.tags = source.tags; else delete m.tags;
         if (source.date) m.date = source.date; else delete m.date;
         if (source.startDate) m.startDate = source.startDate; else delete m.startDate;
         if (source.endDate !== undefined) m.endDate = source.endDate; else delete m.endDate;
@@ -1090,6 +1160,8 @@ const Sync = {
   },
 
   async init() {
+    if (this._initialized) return;
+    this._initialized = true;
     this.main = new SyncChannel({
       id: 'main',
       getPayload: () => this._getMainPayload(),
@@ -1116,24 +1188,17 @@ const Sync = {
       } catch (e) {}
     });
 
-    const hash = location.hash;
-    const syncMatch = hash.match(/^#sync=([a-zA-Z0-9_-]{32,128})$/);
-    if (syncMatch) {
-      const syncParam = syncMatch[1];
-      history.replaceState(null, '', location.pathname + location.search);
-      if (syncParam !== this.main?.fullSyncKey) { await this._confirmJoin(syncParam); return; }
-    }
-
-    const folderSyncMatch = hash.match(/^#fsync=([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]{32,128})$/);
-    if (folderSyncMatch) {
-      const [, folderId, syncKey] = folderSyncMatch;
-      history.replaceState(null, '', location.pathname + location.search);
-      await this._confirmJoinFolder(folderId, syncKey);
-    }
-
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) {
-        this._allChannels().forEach(c => { c._stopPoll(); c._poll(true); });
+        this._allChannels().forEach(c => {
+          if (c._dirtyConflictResolve) {
+            c._dirtyConflictResolve();
+            c._dirtyConflictResolve = null;
+            return;
+          }
+          c._stopPoll();
+          c._poll(true);
+        });
       } else {
         this._allChannels().forEach(c => c._stopPoll());
       }
@@ -1157,6 +1222,21 @@ const Sync = {
       this._allChannels().forEach(c => c._stopPoll());
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
     });
+
+    const hash = location.hash;
+    const syncMatch = hash.match(/^#sync=([a-zA-Z0-9_-]{32,128})$/);
+    if (syncMatch) {
+      const syncParam = syncMatch[1];
+      history.replaceState(null, '', location.pathname + location.search);
+      if (syncParam !== this.main?.fullSyncKey) { await this._confirmJoin(syncParam); return; }
+    }
+
+    const folderSyncMatch = hash.match(/^#fsync=([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]{32,128})$/);
+    if (folderSyncMatch) {
+      const [, folderId, syncKey] = folderSyncMatch;
+      history.replaceState(null, '', location.pathname + location.search);
+      await this._confirmJoinFolder(folderId, syncKey);
+    }
   },
 
   onLocalChange(affectedFolderIds) {
@@ -1181,7 +1261,7 @@ const Sync = {
     window.crypto.getRandomValues(array);
     const key = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
     await this.main.start(key);
-    await this.main.push(true);
+    await this.main.push();
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
@@ -1232,7 +1312,7 @@ const Sync = {
     this._applyMainPayload({ todos: Store.todos, folders: Store.folders });
     await this.main.start(fullKey, remote.version || 0);
     App.render();
-    if (mode === 'merge') await this.main.push(true);
+    if (mode === 'merge') await this.main.push();
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
   
@@ -1264,7 +1344,7 @@ const Sync = {
     window.crypto.getRandomValues(array);
     const key = Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
     await channel.start(key);
-    await channel.push(true);
+    await channel.push();
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
@@ -1338,7 +1418,7 @@ const Sync = {
     const channel = this._createFolderChannel(folderId);
     await channel.start(fullKey, remote.version || 0);
     App.render();
-    if (mode === 'merge') await channel.push(true);
+    if (mode === 'merge') await channel.push();
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
@@ -1488,11 +1568,16 @@ const App = {
     btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"/>${strike}</svg>`;
 
     const ds = Util.dateStr(App.currentDate);
+    const activeTags = Store.settings.activeTags || [];
     const openCount = (filter) => {
       const list = filter === '_none' ? Store.todos.filter(t => !t.folderId)
         : filter ? Store.todos.filter(t => t.folderId === filter)
         : Store.todos.filter(t => !t.folderId || (!Store.hiddenFolders.includes(t.folderId) && !Store.isolatedFolders.includes(t.folderId)));
-      return list.filter(t => Todos.isVisible(t, ds) && !Todos.isDone(t, ds) && !Todos.isSkipped(t, ds)).length;
+      return list.filter(t => {
+        if (!Todos.isVisible(t, ds) || Todos.isDone(t, ds) || Todos.isSkipped(t, ds)) return false;
+        if (activeTags.length > 0 && !(t.tags || []).some(tag => activeTags.includes(tag))) return false;
+        return true;
+      }).length;
     };
     const badge = (n) => n > 0 ? `<span class="folder-menu-count">${n}</span>` : '';
 
@@ -1539,9 +1624,13 @@ const App = {
       ).map(t => t.id)
     );
 
-    const otherOpen = allVisible.filter(t =>
-      !shownIds.has(t.id) && Todos.isVisible(t, ds) && !Todos.isDone(t, ds) && !Todos.isSkipped(t, ds)
-    ).length;
+    const activeTags = Store.settings.activeTags || [];
+    const otherOpen = allVisible.filter(t => {
+      if (shownIds.has(t.id)) return false;
+      if (!Todos.isVisible(t, ds) || Todos.isDone(t, ds) || Todos.isSkipped(t, ds)) return false;
+      if (activeTags.length > 0 && !(t.tags || []).some(tag => activeTags.includes(tag))) return false;
+      return true;
+    }).length;
 
     if (otherOpen > 0) {
       badge.textContent = otherOpen;
@@ -1553,6 +1642,7 @@ const App = {
 
   toggleFolderMenu(e) {
     e.stopPropagation();
+    this.closeTagMenu();
     const menu = document.getElementById('folderMenu');
     const btn = document.getElementById('folderBtn');
     const isOpen = menu.classList.toggle('open');
@@ -1569,9 +1659,88 @@ const App = {
     document.getElementById('folderBtn').setAttribute('aria-expanded', 'false');
   },
 
+  _renderTagDropdown() {
+    const wrap = document.getElementById('tagWrap');
+    if (!Tags.hasTags()) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    const allTags = Tags.getAll();
+    const active = Store.settings.activeTags || [];
+    const ds = Util.dateStr(this.currentDate);
+    const btn = document.getElementById('tagBtn');
+    const color = active.length > 0 ? 'var(--accent)' : 'var(--text-2)';
+    btn.querySelector('svg').setAttribute('stroke', color);
+
+    const tagCount = (tag) => {
+      return Store.todos.filter(t => (t.tags || []).includes(tag) && Todos.isVisible(t, ds) && !Todos.isDone(t, ds) && !Todos.isSkipped(t, ds)).length;
+    };
+    const badge = (n) => n > 0 ? `<span class="tag-menu-count">${n}</span>` : '';
+
+    let html = '';
+    allTags.forEach(tag => {
+      const isActive = active.includes(tag);
+      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const isUrgent = tag === 'Urgent';
+      html += `<button class="tag-menu-item ${isActive ? 'active' : ''} ${isUrgent ? 'tag-urgent' : ''}" onclick="event.stopPropagation();App.toggleTag('${safeTag}')">
+        <span class="tag-menu-name">${Util.esc(tagLabel(tag))}</span>
+        ${badge(tagCount(tag))}
+      </button>`;
+    });
+    document.getElementById('tagMenu').innerHTML = html;
+  },
+
+  _renderTagBadge() {
+    const badge = document.getElementById('tagBadge');
+    if (!badge) return;
+    const count = (Store.settings.activeTags || []).length;
+    if (count > 0) {
+      badge.textContent = count;
+      badge.style.display = '';
+    } else {
+      badge.style.display = 'none';
+    }
+  },
+
+  toggleTag(tag) {
+    const tags = Store.settings.activeTags || [];
+    const idx = tags.indexOf(tag);
+    if (idx >= 0) tags.splice(idx, 1);
+    else tags.push(tag);
+    Store.settings.activeTags = tags;
+    Store.saveSettings();
+    this._renderTagDropdown();
+    this._renderTagBadge();
+    this.render();
+  },
+
+  toggleTagMenu(e) {
+    e.stopPropagation();
+    this.closeFolderMenu();
+    const menu = document.getElementById('tagMenu');
+    const btn = document.getElementById('tagBtn');
+    const isOpen = menu.classList.toggle('open');
+    btn.setAttribute('aria-expanded', isOpen);
+    if (isOpen) {
+      this._renderTagDropdown();
+      const close = (ev) => { if (!menu.contains(ev.target)) { menu.classList.remove('open'); document.removeEventListener('click', close); } };
+      setTimeout(() => document.addEventListener('click', close), 0);
+    }
+  },
+
+  closeTagMenu() {
+    document.getElementById('tagMenu').classList.remove('open');
+    document.getElementById('tagBtn').setAttribute('aria-expanded', 'false');
+  },
+
   render() {
+    const allTags = Tags.getAll();
+    const validActiveTags = (Store.settings.activeTags || []).filter(t => allTags.includes(t));
+    if (validActiveTags.length !== (Store.settings.activeTags || []).length) {
+      Store.settings.activeTags = validActiveTags;
+      Store.saveSettings();
+    }
     const ds = Util.dateStr(this.currentDate);
     const af = Store.settings.activeFolder;
+    const activeTags = Store.settings.activeTags || [];
 
     const hidden = Store.hiddenFolders;
     const isolated = Store.isolatedFolders;
@@ -1579,12 +1748,17 @@ const App = {
       ? Store.todos.filter(t => !t.folderId)
       : af
         ? Store.todos.filter(t => t.folderId === af)
-        : Store.todos.filter(t => !t.folderId || (!hidden.includes(t.folderId) && !isolated.includes(t.folderId)));
+        : activeTags.length > 0
+          ? Store.todos.filter(t => !t.folderId || !hidden.includes(t.folderId))
+          : Store.todos.filter(t => !t.folderId || (!hidden.includes(t.folderId) && !isolated.includes(t.folderId)));
 
     const visible = folderFiltered.filter(t => Todos.isVisible(t, ds));
-    const skipped = visible.filter(t => Todos.isSkipped(t, ds));
-    const active = visible.filter(t => !Todos.isDone(t, ds) && !Todos.isSkipped(t, ds));
-    const done = visible.filter(t => Todos.isDone(t, ds) && !Todos.isSkipped(t, ds));
+    const tagFiltered = activeTags.length > 0
+      ? visible.filter(t => (t.tags || []).some(tag => activeTags.includes(tag)))
+      : visible;
+    const skipped = tagFiltered.filter(t => Todos.isSkipped(t, ds));
+    const active = tagFiltered.filter(t => !Todos.isDone(t, ds) && !Todos.isSkipped(t, ds));
+    const done = tagFiltered.filter(t => Todos.isDone(t, ds) && !Todos.isSkipped(t, ds));
     const shownSkipped = this.showSkipped ? skipped : [];
 
     const sort = (a, b) => {
@@ -1625,6 +1799,8 @@ const App = {
 
     this._renderFolderDropdown();
     this._renderFolderBadge(ds);
+    this._renderTagDropdown();
+    this._renderTagBadge();
 
     const main = document.getElementById('mainContent');
 
@@ -1670,7 +1846,7 @@ const App = {
         <div class="todo-check-wrap" onclick="event.stopPropagation();Todos.toggleDone('${Util.safeId(todo.id)}','${ds}')">
           <div class="todo-check">${checkSvg}</div>
         </div>
-        <div class="todo-body"><div class="todo-title">${Util.esc(todo.title)}</div>${time}</div>
+        <div class="todo-body"><div class="todo-title">${Util.esc(todo.title)}</div>${time}${(Store.settings.showTagsOnTodos && todo.tags && todo.tags.length) ? `<div class="todo-tags">${todo.tags.map(tag => `<span class="todo-tag-chip${tag === 'Urgent' ? ' tag-urgent' : ''}">${Util.esc(tagLabel(tag))}</span>`).join('')}</div>` : ''}</div>
         ${progress}
       </div>`;
     };
@@ -1716,19 +1892,22 @@ const App = {
         const cd = document.getElementById('confirmDialog');
         if (cd.classList.contains('open')) {
           cd.classList.remove('open');
+          const firstBtn = cd.querySelector('.confirm-actions .btn');
+          if (firstBtn) firstBtn.click();
           return;
         }
         for (const name of ['detail', 'add', 'list', 'settings', 'welcome']) {
           const el = document.getElementById(name + 'Modal');
           if (el.classList.contains('open')) { Modal.close(name); return; }
         }
+        return;
       }
+  
       if (!document.querySelector('.modal.open') && !document.querySelector('.confirm-overlay.open')) {
-        if (e.key === 'ArrowLeft') this.nav(-1);
-        if (e.key === 'ArrowRight') this.nav(1);
+        if (e.key === 'ArrowLeft') { this.nav(-1); return; }
+        if (e.key === 'ArrowRight') { this.nav(1); return; }
       }
-    });
-    document.addEventListener('keydown', e => {
+  
       if (e.key !== 'Enter' && e.key !== ' ') return;
       const item = e.target.closest('.todo-item:not(.skipped)');
       if (!item) return;
@@ -1736,15 +1915,10 @@ const App = {
       const id = item.dataset.id;
       if (!id) return;
       const ds = Util.dateStr(this.currentDate);
-      if (e.key === ' ') {
-        Todos.toggleDone(id, ds);
-      } else {
-        DetailView.show(id, ds);
-      }
+      if (e.key === ' ') Todos.toggleDone(id, ds);
+      else DetailView.show(id, ds);
     });
   },
-
-  _allChannels() { return Sync._allChannels(); }
 };
 
 const AddForm = {
@@ -1772,6 +1946,14 @@ const AddForm = {
         <select class="form-input form-input-folder" id="f_folder">${folderOptions}</select>
       </div>` : ''}
       <div class="form-group">
+        <label class="form-label">${L('tags')}</label>
+        <div class="tag-selected" id="f_tag_selected"></div>
+        <div class="tag-input-wrap">
+          <input class="form-input form-input-sm" id="f_tag_input" placeholder="${L('tagsPH')}" autocomplete="off" onfocus="AddForm._showTagDropdown()" oninput="AddForm._filterTagDropdown()" onkeydown="if(event.key==='Enter'){event.preventDefault();AddForm._addTag(this.value)}">
+          <div class="tag-dropdown" id="f_tag_dropdown"></div>
+        </div>
+      </div>
+      <div class="form-group">
         <label class="form-label">${L('schedule')}</label>
         <div class="chip-group" id="typeTabs">
           <button class="chip ${type === 'single' ? 'active' : ''}" data-type="single">${L('singleDay')}</button>
@@ -1796,6 +1978,8 @@ const AddForm = {
     });
 
     this._renderSchedule(type, existing);
+    this._currentTags = (t.tags || []).slice();
+    this._renderTagPills();
     setTimeout(() => {
       const input = document.getElementById('f_title');
       if (input) input.focus({ preventScroll: true });
@@ -1998,6 +2182,91 @@ const AddForm = {
     }
   },
 
+  _currentTags: [],
+
+  _renderTagPills() {
+    const container = document.getElementById('f_tag_selected');
+    if (!container) return;
+    container.innerHTML = this._currentTags.map(tag => {
+      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `<span class="tag-pill">${Util.esc(tagLabel(tag))}<span class="tag-pill-remove" onclick="AddForm._removeTag('${safeTag}')">✕</span></span>`;
+    }).join('');
+  },
+
+  _removeTag(tag) {
+    this._currentTags = this._currentTags.filter(t => t !== tag);
+    this._renderTagPills();
+    this._renderTagDropdownItems();
+  },
+
+  _addTag(tag) {
+    tag = normalizeTagInput(tag);
+    if (!tag || this._currentTags.includes(tag)) return;
+    this._currentTags.push(tag);
+    this._renderTagPills();
+    const input = document.getElementById('f_tag_input');
+    if (input) { input.value = ''; }
+    this._renderTagDropdownItems();
+  },
+
+  _closeHandler: null,
+  
+  _showTagDropdown() {
+      this._renderTagDropdownItems();
+      document.getElementById('f_tag_dropdown').classList.add('open');
+      if (this._closeHandler) {
+        document.removeEventListener('click', this._closeHandler);
+      }
+      this._closeHandler = (e) => {
+        if (!e.target.closest('.tag-input-wrap')) {
+          document.getElementById('f_tag_dropdown')?.classList.remove('open');
+          document.removeEventListener('click', this._closeHandler);
+          this._closeHandler = null;
+        }
+      };
+      setTimeout(() => document.addEventListener('click', this._closeHandler), 0);
+  },
+
+  _filterTagDropdown() {
+    this._renderTagDropdownItems();
+    document.getElementById('f_tag_dropdown').classList.add('open');
+  },
+
+  _renderTagDropdownItems() {
+    const dropdown = document.getElementById('f_tag_dropdown');
+    if (!dropdown) return;
+    const input = document.getElementById('f_tag_input');
+    const rawQuery = (input?.value || '').trim();
+    const query = rawQuery.toLowerCase();
+    const allTags = Tags.getAll();
+  
+    const filtered = query
+      ? allTags.filter(t =>
+          t.toLowerCase().includes(query) || tagLabel(t).toLowerCase().includes(query)
+        )
+      : allTags;
+  
+    let html = filtered.map(tag => {
+      const sel = this._currentTags.includes(tag);
+      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const isUrgent = tag === 'Urgent';
+      return `<button class="tag-dropdown-item ${sel ? 'selected' : ''} ${isUrgent ? 'tag-urgent' : ''}" onclick="event.preventDefault();AddForm.${sel ? '_removeTag' : '_addTag'}('${safeTag}')">
+        ${Util.esc(tagLabel(tag))}
+      </button>`;
+    }).join('');
+  
+    const isExisting = rawQuery && allTags.some(t =>
+      t.toLowerCase() === query || tagLabel(t).toLowerCase() === query
+    );
+  
+    if (rawQuery && !isExisting) {
+      const safeQuery = rawQuery.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      html += `<button class="tag-dropdown-item tag-dropdown-add" onclick="event.preventDefault();AddForm._addTag('${safeQuery}')">+ ${Util.esc(rawQuery)}</button>`;
+    }
+  
+    dropdown.innerHTML = html || `<div style="padding:8px 12px;font-size:0.82rem;color:var(--text-3)">${L('noTags')}</div>`;
+  },
+
   save() {
     const title = document.getElementById('f_title').value.trim();
     if (!title) { document.getElementById('f_title').focus(); return; }
@@ -2015,6 +2284,8 @@ const AddForm = {
 
     const oldFolderId = todo.folderId || null;
     Object.assign(todo, { title, notes, time, type, _modified: Date.now() });
+    todo.tags = (this._currentTags || []).slice();
+    if (!todo.tags.length) delete todo.tags;
     if (folderId) todo.folderId = folderId; else delete todo.folderId;
     delete todo.date; delete todo.startDate; delete todo.endDate; delete todo.recurrence; delete todo.rangeCount;
 
@@ -2055,6 +2326,7 @@ const AddForm = {
           rec.days = [];
         } else {
           rec.days = [...document.querySelectorAll('.day-chip.active')].map(c => parseInt(c.dataset.day));
+          if (rec.days.length === 0) return;
         }
       } else if (freq === 'monthly') {
         rec.interval = Math.max(1, parseInt(document.getElementById('f_monthInterval').value) || 1);
@@ -2110,6 +2382,7 @@ const DetailView = {
       if (folder) html += `<div class="detail-field"><div class="detail-field-label">${L('folder')}</div><div class="detail-field-value detail-field-value-flex"><span class="folder-dot" style="background:${folder.color}"></span>${Util.esc(folder.name)}</div></div>`;
     }
     if (todo.notes) html += `<div class="detail-field"><div class="detail-field-label">${L('notes')}</div><div class="detail-field-value">${Util.esc(todo.notes).replace(/\n/g, '<br>')}</div></div>`;
+    if (todo.tags && todo.tags.length) html += `<div class="detail-field"><div class="detail-field-label">${L('tags')}</div><div class="detail-field-value"><div class="todo-tags">${todo.tags.map(tag => `<span class="todo-tag-chip${tag === 'Urgent' ? ' tag-urgent' : ''}">${Util.esc(tagLabel(tag))}</span>`).join('')}</div></div></div>`;
     html += `<div class="detail-field"><div class="detail-field-label">${L('schedule')}</div><div class="detail-field-value">${Todos.describe(todo)}</div></div>`;
     if (todo.time) html += `<div class="detail-field"><div class="detail-field-label">${L('dueTime')}</div><div class="detail-field-value">${Util.formatTime(todo.time)}</div></div>`;
     html += `<div class="detail-field"><div class="detail-field-label">Status</div><div class="detail-field-value">${dn ? L('completed') : L('openSt')}</div></div>`;
@@ -2130,6 +2403,7 @@ const DetailView = {
 const ListView = {
   filter: 'all',
   folderFilter: null,
+  tagFilter: [],
   searchQuery: '',
 
   render() {
@@ -2148,6 +2422,9 @@ const ListView = {
         (t.title || '').toLowerCase().includes(q) ||
         (t.notes || '').toLowerCase().includes(q)
       );
+    }
+    if (this.tagFilter.length > 0) {
+      filtered = filtered.filter(t => (t.tags || []).some(tag => this.tagFilter.includes(tag)));
     }
     const sorted = [...filtered].sort((a, b) => (b.created || 0) - (a.created || 0));
 
@@ -2177,6 +2454,18 @@ const ListView = {
       }).join('')}
     </div>`;
 
+    const allTagsList = Tags.getAll();
+    if (allTagsList.length) {
+      html += `<div class="chip-group chip-group-bordered">
+        ${allTagsList.map(tag => {
+          const cnt = folderBase.filter(t => (t.tags || []).includes(tag)).length;
+          const isActive = this.tagFilter.includes(tag);
+          const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          return `<button class="chip chip-sm ${isActive ? 'active' : ''}" onclick="ListView.toggleTagFilter('${safeTag}')">${Util.esc(tagLabel(tag))} (${cnt})</button>`;
+        }).join('')}
+      </div>`;
+    }
+
     if (!sorted.length) {
       html += `<div class="empty-state"><p>${L('noYet')}</p></div>`;
     } else {
@@ -2187,6 +2476,7 @@ const ListView = {
           <div class="list-item-body" onclick="Modal.close('list');App.openAdd('${Util.safeId(todo.id)}')">
             <div class="list-item-title">${Util.esc(todo.title)}</div>
             <div class="list-item-sub">${Todos.describe(todo)}${todo.time ? ' - ' + Util.formatTime(todo.time) : ''}</div>
+            ${(todo.tags && todo.tags.length) ? `<div class="todo-tags">${todo.tags.map(tag => `<span class="todo-tag-chip${tag === 'Urgent' ? ' tag-urgent' : ''}">${Util.esc(tagLabel(tag))}</span>`).join('')}</div>` : ''}
           </div>
           <div class="list-item-actions">
             <button onclick="Modal.close('list');App.openAdd('${Util.safeId(todo.id)}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
@@ -2200,6 +2490,13 @@ const ListView = {
       const si = document.getElementById('listSearchInput');
       if (si) { si.focus(); si.selectionStart = si.selectionEnd = si.value.length; }
     }
+  },
+
+  toggleTagFilter(tag) {
+    const idx = this.tagFilter.indexOf(tag);
+    if (idx >= 0) this.tagFilter.splice(idx, 1);
+    else this.tagFilter.push(tag);
+    this.render();
   }
 };
 
@@ -2287,7 +2584,7 @@ const Settings = {
             <button onclick="Settings._editingFolderId=null;Settings.render()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
           </div>
           <div class="folder-color-dots full-width">
-            ${FOLDER_COLORS.map(c => `<div class="folder-color-dot ${f.color === c ? 'active' : ''}" style="background:${c}" onclick="Settings.setFolderColor('${f.id}','${c}')"></div>`).join('')}
+            ${FOLDER_COLORS.map(c => `<div class="folder-color-dot ${f.color === c ? 'active' : ''}" style="background:${c}" data-color="${c}" onclick="Settings.setFolderColor('${f.id}','${c}')"></div>`).join('')}
             <input type="color" class="color-native" value="${f.color}" onchange="Settings.setFolderColor('${f.id}',this.value)" title="${L('custom')}">
           </div>
           <div class="folder-edit-options">
@@ -2304,7 +2601,10 @@ const Settings = {
               <div><span class="toggle-label">${L('noSyncFolder')}</span><div class="toggle-desc">${L('noSyncDesc')}</div></div>
             </div>` : ''}
             ${this._renderFolderSyncSection(f)}
-            <button class="btn btn-danger btn-folder-delete" onclick="Settings.confirmDeleteFolder('${f.id}')">${L('deleteFolder')}</button>
+            <div style="display:flex;gap:var(--space-8);flex-wrap:wrap">
+              <button class="btn btn-danger btn-folder-delete" onclick="Settings.confirmDeleteFolder('${f.id}')">${L('deleteFolder')}</button>
+              <button class="btn btn-outline btn-folder-empty" onclick="Settings.confirmEmptyFolder('${f.id}')">${L('emptyFolder')}</button>
+            </div>
           </div>
         </div>`;
       }
@@ -2382,11 +2682,16 @@ const Settings = {
         <div class="setting-action">
           <div class="color-picker">
             <div class="color-swatches">
-              ${ACCENT_PRESETS.map(c => `<div class="color-swatch ${Store.settings.accent === c ? 'active' : ''}" style="background:${c}" onclick="Settings.setAccent('${c}')"></div>`).join('')}
+              ${ACCENT_PRESETS.map(c => `<div class="color-swatch ${Store.settings.accent === c ? 'active' : ''}" style="background:${c}" data-color="${c}" onclick="Settings.setAccent('${c}')"></div>`).join('')}
             </div>
             <input type="color" class="color-native" value="${Store.settings.accent}" onchange="Settings.setAccent(this.value)" title="${L('custom')}">
           </div>
         </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-info"><div class="setting-label">${L('showTagsOnTodos')}</div><div class="setting-desc">${L('showTagsOnTodosSub')}</div></div>
+        <div class="setting-action"><div class="toggle-track ${Store.settings.showTagsOnTodos ? 'on' : ''}" onclick="Settings.toggleShowTags()"><div class="toggle-thumb"></div></div></div>
       </div>
 
       ${isStandalone() ? '' : (canInstallPwa && deferredInstallPrompt) ? `<div class="setting-row">
@@ -2513,7 +2818,7 @@ const Settings = {
     const dotLg = document.querySelector('.folder-list-item.editing .folder-dot-lg');
     if (dotLg) dotLg.style.background = color;
     document.querySelectorAll('.folder-list-item.editing .folder-color-dot').forEach(el => {
-      el.classList.toggle('active', el.style.background === color);
+      el.classList.toggle('active', el.dataset.color === color);
     });
     App.render();
   },
@@ -2539,6 +2844,18 @@ const Settings = {
       { label: L('delete'), cls: 'btn-danger', action() {
         Folders.remove(id);
         Settings._editingFolderId = null;
+        Settings.render();
+        App.render();
+      }}
+    ]);
+  },
+
+  confirmEmptyFolder(id) {
+    Modal.confirm(L('emptyFolderTitle'), L('emptyFolderMsg'), [
+      { label: L('cancel'), cls: 'btn-outline', action() {} },
+      { label: L('delete'), cls: 'btn-danger', action() {
+        Store.todos = Store.todos.filter(t => t.folderId !== id);
+        Store.saveTodos([id]);
         Settings.render();
         App.render();
       }}
@@ -2574,8 +2891,13 @@ const Settings = {
     Store.saveSettings();
     App.applyTheme();
     document.querySelectorAll('.color-swatch').forEach(el => {
-      el.classList.toggle('active', el.style.background === color);
+      el.classList.toggle('active', el.dataset.color === color);
     });
+  },
+  
+  toggleShowTags() {
+    Store.settings.showTagsOnTodos = !Store.settings.showTagsOnTodos;
+    Store.saveSettings(); App.render(); this.render();
   },
   
   _langCache: null,
@@ -2583,19 +2905,31 @@ const Settings = {
   async renderLangs() {
     const el = document.getElementById('langToggle');
     if (!el) return;
+  
     let langs = this._langCache;
     if (!langs) {
-      try { langs = await (await fetch('/i18n/langs.json')).json(); this._langCache = langs; }
-      catch (e) { langs = { en: { native: 'English', builtin: true, complete: 100 }, de: { native: 'Deutsch', builtin: true, complete: 100 } }; }
+      try {
+        langs = await (await fetch('/i18n/langs.json')).json();
+        this._langCache = langs;
+      } catch (e) {
+        langs = {
+          en: { native: 'English', builtin: true, complete: 100 },
+          de: { native: 'Deutsch', builtin: true, complete: 100 }
+        };
+      }
     }
+  
+    const currentEl = document.getElementById('langToggle');
+    if (!currentEl) return;
+  
     const current = Store.settings.lang;
     const builtIn = Object.entries(langs).filter(([, i]) => i.builtin);
     const community = Object.entries(langs).filter(([, i]) => !i.builtin);
-
-    let html = builtIn.map(([code, info]) =>
+  
+    let html = builtIn.map(([code]) =>
       `<button class="lang-btn ${code === current ? 'active' : ''}" onclick="Settings.setLang('${code}')">${code.toUpperCase()}</button>`
     ).join('');
-
+  
     if (community.length === 1) {
       const [code, info] = community[0];
       html += `<button class="lang-btn ${code === current ? 'active' : ''}" onclick="Settings.setLang('${code}')" title="${Util.esc(info.native || info.name)} (${code})">${code.toUpperCase()}</button>`;
@@ -2606,46 +2940,50 @@ const Settings = {
         ${community.map(([code]) => `<option value="${code}" ${code === current ? 'selected' : ''}>${code.toUpperCase()}</option>`).join('')}
       </select>`;
     }
-    
-    el.innerHTML = html;
-    
-    const oldCredit = el.parentElement.querySelector('.lang-credit');
+  
+    currentEl.innerHTML = html;
+  
+    const oldCredit = currentEl.parentElement.querySelector('.lang-credit');
     if (oldCredit) oldCredit.remove();
-    
+  
     const activeCommunity = community.find(([c]) => c === current);
     if (activeCommunity) {
       const [code, info] = activeCommunity;
       const native = info.native || info.name || code;
       const english = info.name || '';
       const parts = [Util.esc(native) + (english && english !== native ? ` (${Util.esc(english)})` : '')];
-      const credits = Array.isArray(info.credits) && info.credits.length ? info.credits : (info.author ? [{ name: info.author, url: info.author_url || '' }] : []);
+      const credits = Array.isArray(info.credits) && info.credits.length
+        ? info.credits
+        : (info.author ? [{ name: info.author, url: info.author_url || '' }] : []);
+  
       if (credits.length) {
-      const first = credits[0];
-      const n = Util.esc(first.name);
-      const u = String(first.url || '').trim();
-      const link = u ? `<a href="${Util.esc(u)}" target="_blank" rel="noopener">${n}</a>` : n;
-    
-      if (credits.length === 1) {
-        parts.push('by&nbsp;' + link);
-      } else {
-        const rest = credits.slice(1).map(c => {
-          const cn = Util.esc(c.name);
-          const cu = String(c.url || '').trim();
-          return `<div>${cu ? `<a href="${Util.esc(cu)}" target="_blank" rel="noopener">${cn}</a>` : cn}</div>`;
-        }).join('');
-        parts.push(
-          'by&nbsp;' + link +
-          `&nbsp;<span class="lang-credit-wrap"><span class="lang-credit-more" onclick="this.nextElementSibling.classList.toggle(\'open\')">+${credits.length - 1}</span><div class="lang-credit-drop">${rest}</div></span>`
-        );
+        const first = credits[0];
+        const n = Util.esc(first.name);
+        const u = String(first.url || '').trim();
+        const link = u ? `<a href="${Util.esc(u)}" target="_blank" rel="noopener">${n}</a>` : n;
+  
+        if (credits.length === 1) {
+          parts.push('by&nbsp;' + link);
+        } else {
+          const rest = credits.slice(1).map(c => {
+            const cn = Util.esc(c.name);
+            const cu = String(c.url || '').trim();
+            return `<div>${cu ? `<a href="${Util.esc(cu)}" target="_blank" rel="noopener">${cn}</a>` : cn}</div>`;
+          }).join('');
+          parts.push(
+            'by&nbsp;' + link +
+            `&nbsp;<span class="lang-credit-wrap"><span class="lang-credit-more" onclick="this.nextElementSibling.classList.toggle('open')">+${credits.length - 1}</span><div class="lang-credit-drop">${rest}</div></span>`
+          );
+        }
       }
-    }
+  
       const creditEl = document.createElement('div');
       creditEl.className = 'lang-credit';
       creditEl.innerHTML = parts.join(' ');
-      el.parentElement.appendChild(creditEl);
+      currentEl.parentElement.appendChild(creditEl);
     }
+  
     this._bindCreditDropdown();
-    el.innerHTML = html;
   },
 
   export() {
@@ -2958,7 +3296,7 @@ if ('serviceWorker' in navigator) {
 
 const Welcome = {
   _page: 0,
-  _totalPages: 5,
+  _totalPages: 6,
 
   init() {
     if (!localStorage.getItem('todo_welcome_seen')) {
@@ -3086,8 +3424,51 @@ const Welcome = {
           <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w3Feat3')}</div>
         </div>
       </div>`,
-
-      // Page 4: Sync (flow diagram)
+        
+      // Page 4: Tags
+      () => {
+        const check = `<svg class="wm-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+        return `<div class="welcome-page">
+          <h2 class="welcome-title">${L('w4TagTitle')}</h2>
+          <div class="wm-todo-list">
+            <div class="wm-todo">
+              <div class="wm-todo-check done">${check}</div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title done">${L('w2Ex1')}</div>
+                <div class="wm-todo-meta"><span class="wm-tag-chip urgent">${L('urgent')}</span></div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex3')}</div>
+                <div class="wm-todo-meta"><span class="wm-tag-chip">${L('reminder')}</span></div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex2')}</div>
+                <div class="wm-todo-meta"><span class="wm-tag-chip">${L('lowPriority')}</span></div>
+              </div>
+            </div>
+            <div class="wm-todo">
+              <div class="wm-todo-check"></div>
+              <div class="wm-todo-body">
+                <div class="wm-todo-title">${L('w2Ex5')}</div>
+                <div class="wm-todo-meta"><span class="wm-tag-chip">🏷️️ ${L('w4TagCustom')}</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="wm-feat-list">
+            <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4TagFeat1')}</div>
+            <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4TagFeat2')}</div>
+            <div class="wm-feat"><span class="wm-feat-dot"></span>${L('w4TagFeat3')}</div>
+          </div>
+        </div>`;
+      },
+        
+      // Page 5: Sync (flow diagram)
       () => `<div class="welcome-page">
         <h2 class="welcome-title">${L('w4Title')}</h2>
         <div class="wm-sync-flow">
@@ -3117,7 +3498,7 @@ const Welcome = {
         </div>
       </div>`,
 
-      // Page 5: Quick Tips (icon + label pairs)
+      // Page 6: Quick Tips (icon + label pairs)
       () => `<div class="welcome-page">
         <h2 class="welcome-title">${L('w5Title')}</h2>
         <div class="wm-tips">
@@ -3152,12 +3533,10 @@ const Welcome = {
 
     body.innerHTML = pages[p]();
 
-    // Dots
     dots.innerHTML = Array.from({ length: this._totalPages }, (_, i) =>
       `<button class="welcome-dot ${i === p ? 'active' : ''}" onclick="Welcome.goTo(${i})"></button>`
     ).join('');
 
-    // Nav buttons
     let navHtml = '';
     if (p === 0) {
       navHtml = `
@@ -3293,6 +3672,7 @@ const DragSort = {
   _onTouchStart(e) {
     const el = e.currentTarget;
     if (el.classList.contains('done')) return;
+    clearTimeout(this._holdTimer);
     this._holdTimer = setTimeout(() => {
       this._dragging = el;
       el.classList.add('drag-hold');
@@ -3450,6 +3830,7 @@ const FolderDrag = {
 
   _onTouchStart(e) {
     const el = e.currentTarget;
+    clearTimeout(this._holdTimer);
     this._holdTimer = setTimeout(() => {
       this._dragging = el;
       el.classList.add('drag-hold');
@@ -3604,7 +3985,14 @@ const ModalSwipe = {
       modal.style.transition = 'transform 0.2s ease-out';
       modal.style.transform = 'translateY(100vh)';
       setTimeout(() => {
-        if (name === 'confirm') document.getElementById('confirmDialog')?.classList.remove('open');
+        if (name === 'confirm') {
+          const cd = document.getElementById('confirmDialog');
+          if (cd) {
+            cd.classList.remove('open');
+            const firstBtn = cd.querySelector('.confirm-actions .btn');
+            if (firstBtn) firstBtn.click();
+          }
+        }
         else if (name === 'welcome') Welcome.close();
         else Modal.close(name);
         modal.style.transform = '';
@@ -3667,6 +4055,7 @@ window.DetailView = DetailView;
 window.Sync = Sync;
 window.DragSort = DragSort;
 window.Folders = Folders;
+window.Tags = Tags;
 window.Store = Store;
 window.Util = Util;
 window.SyncChannel = SyncChannel;
