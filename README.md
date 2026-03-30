@@ -9,6 +9,7 @@ A privacy-focused, offline-capable todo app with end-to-end encrypted sync acros
 ## Features
 
 - **Single, range, and recurring todos** (daily, weekly, biweekly, monthly, yearly, with span mode for flexible windows, e.g. Friday to Sunday)
+- **Tags** with built-in presets (Urgent, Reminder, Low priority) and custom tags. Filter the day view by one or more tags at once, including across isolated folders
 - **Folders** with colors, per-device hide/isolate options, and the ability to exclude folders from sync
 - **Drag & drop reordering** for mouse and touch
 - **End-to-end encrypted sync** using AES-256-GCM, key derived with PBKDF2 (100,000 iterations). The server never sees your data
@@ -19,7 +20,7 @@ A privacy-focused, offline-capable todo app with end-to-end encrypted sync acros
 - **Import/export** as JSON
 - **Clean Up tool** to remove past todos and trim old completion history
 - **GDPR-friendly** with no analytics, no cookies, no user accounts
--  **Community translations** via a built-in [translation editor](https://todo.73.nu/i18n/editor). Contributors are credited by name with an optional link
+- **Community translations** via a built-in [translation editor](https://todo.73.nu/i18n/editor). Contributors are credited by name with an optional link
 
 ---
 
@@ -31,7 +32,7 @@ Sync is opt-in. When enabled:
 2. The encryption key is derived from your sync key using PBKDF2
 3. Only the encrypted blob is sent to the server, never the key
 4. A SHA-256 hash of your sync key is used as the server-side identifier
-5. Conflict resolution merges completion dates from both sides and uses `_modified` timestamps for content conflicts
+5. Conflict resolution merges completion dates from both sides and uses `_modified` timestamps for content conflicts. Schedule fields (date, recurrence, etc.) participate fully in conflict detection
 
 Anyone with your sync key has full access to the encrypted data. Treat it like a password.
 
