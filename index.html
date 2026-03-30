@@ -70,6 +70,13 @@
               <span class="folder-badge" id="folderBadge" style="display:none"></span>
               <div class="folder-menu" id="folderMenu"></div>
             </div>
+            <div style="position:relative;display:none" id="tagWrap">
+              <button class="tag-btn" id="tagBtn" onclick="App.toggleTagMenu(event)" aria-label="Filter by tag">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7.5" cy="7.5" r="1" fill="currentColor"/></svg>
+              </button>
+              <span class="tag-badge" id="tagBadge" style="display:none"></span>
+              <div class="tag-menu" id="tagMenu"></div>
+            </div>
             <button class="icon-btn" onclick="Modal.open('list')" title="All todos" aria-label="All todos">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
             </button>
