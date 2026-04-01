@@ -307,7 +307,6 @@ button:focus-visible,
   font-size: var(--header-date-font);
   font-weight: 600;
   letter-spacing: -0.02em;
-  line-height: 1.1;
   padding: clamp(4px, 1.2vw, 6px) clamp(2px, 1vw, 4px);
   border-radius: var(--radius-sm);
   cursor: pointer;
