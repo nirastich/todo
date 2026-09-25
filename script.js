@@ -114,13 +114,36 @@ const Store = {
 
 const I18N = {};
 
-function loadLang(lang) {
+function loadLang(lang, timeout = 4000) {
   return new Promise((resolve, reject) => {
     if (I18N[lang]) { resolve(); return; }
+    let settled = false;
     const s = document.createElement('script');
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('timeout'));
+    }, timeout);
     s.src = '/i18n/' + lang + '.js';
-    s.onload = () => { I18N[lang] = window._i18n[lang]; resolve(); };
-    s.onerror = reject;
+    s.onload = () => {
+      clearTimeout(timer);
+      I18N[lang] = window._i18n?.[lang];
+      if (settled) {
+        if (Store.settings.lang === lang) {
+          App.render();
+          if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+        }
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    s.onerror = () => {
+      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      reject(new Error('load failed'));
+    };
     document.head.appendChild(s);
   });
 }
@@ -1505,7 +1528,8 @@ const App = {
     Store.loadIsolated();
     Store.loadNoSync();
     this.applyTheme();
-    await loadLang('en');
+    try { await loadLang('en'); }
+    catch (e) { console.warn('Failed to load lang: en', e); }
     if (Store.settings.lang !== 'en') {
       try { await loadLang(Store.settings.lang); }
       catch (e) { console.warn('Failed to load lang:', Store.settings.lang, e); }
@@ -2878,7 +2902,8 @@ const Settings = {
   },
 
   async setLang(lang) {
-    await loadLang(lang);
+    try { await loadLang(lang); }
+    catch (e) { console.warn('Failed to load lang:', lang, e); return; }
     Store.settings.lang = lang;
     Store.saveSettings();
     Settings._langCache = null;
