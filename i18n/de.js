@@ -213,6 +213,12 @@
     emptyFolderTitle: 'Ordner leeren', 
     emptyFolderMsg: 'Alle Todos in diesem Ordner löschen? Dies kann nicht rückgängig gemacht werden.', 
     showTagsOnTodos: 'Tags auf Todos anzeigen', 
-    showTagsOnTodosSub: 'Tag-Labels auf jedem Todo in der Tagesansicht anzeigen'
+    showTagsOnTodosSub: 'Tag-Labels auf jedem Todo in der Tagesansicht anzeigen',
+    syncLinkInvalid: 'Kein gültiger Sync-Schlüssel oder Link',
+    syncPaste: 'Einfügen',
+    iosLinkTitle: 'In der installierten App öffnen?',
+    iosLinkMsg: 'Auf iPhone und iPad öffnen sich Links immer in Safari, und eine zum Home-Bildschirm hinzugefügte App hat einen eigenen, getrennten Speicher.\n\nSo nutzt du den Link in der installierten App: Link kopieren, App vom Home-Bildschirm öffnen, in den Einstellungen neben dem Sync-Feld auf „Einfügen“ tippen. Ordner-Links kannst du auch in das Feld für neue Ordner einfügen.',
+    iosLinkCopy: 'Link kopieren',
+    iosLinkHere: 'In Safari nutzen'
   };
 })();
