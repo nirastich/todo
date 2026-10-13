@@ -149,6 +149,22 @@ function loadLang(lang, timeout = 4000) {
 }
 
 function L(key) { return I18N[Store.settings.lang]?.[key] ?? I18N.en?.[key] ?? key; }
+
+const SyncLink = {
+  parse(text) {
+    let s = (text || '').trim();
+    if (!s) return null;
+    const hashIdx = s.indexOf('#');
+    if (hashIdx >= 0) s = s.slice(hashIdx + 1);
+    try { s = decodeURIComponent(s); } catch (e) {}
+    let m = s.match(/^sync=([a-zA-Z0-9_-]{32,128})$/);
+    if (m) return { type: 'main', key: m[1] };
+    m = s.match(/^fsync=([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]{32,128})$/);
+    if (m) return { type: 'folder', folderId: m[1], key: m[2] };
+    if (/^[a-zA-Z0-9_-]{32,128}$/.test(s)) return { type: 'key', key: s };
+    return null;
+  }
+};
 function LF(key, ...args) { const val = I18N[Store.settings.lang]?.[key] ?? I18N.en?.[key]; return typeof val === 'function' ? val(...args) : val; }
 
 const Util = {
@@ -1246,20 +1262,46 @@ const Sync = {
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
     });
 
-    const hash = location.hash;
-    const syncMatch = hash.match(/^#sync=([a-zA-Z0-9_-]{32,128})$/);
-    if (syncMatch) {
-      const syncParam = syncMatch[1];
+    const link = location.hash ? SyncLink.parse(location.hash) : null;
+    if (link && link.type !== 'key') {
+      const fullUrl = location.href;
       history.replaceState(null, '', location.pathname + location.search);
-      if (syncParam !== this.main?.fullSyncKey) { await this._confirmJoin(syncParam); return; }
+      if (link.type === 'main' && link.key === this.main?.fullSyncKey) return;
+      if (link.type === 'folder' && this.folderChannels[link.folderId]?.fullSyncKey === link.key) return;
+      if (isIOS() && !isStandalone()) { this._offerAppHandoff(link, fullUrl); return; }
+      await this._openLink(link);
     }
+  },
 
-    const folderSyncMatch = hash.match(/^#fsync=([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]{32,128})$/);
-    if (folderSyncMatch) {
-      const [, folderId, syncKey] = folderSyncMatch;
-      history.replaceState(null, '', location.pathname + location.search);
-      await this._confirmJoinFolder(folderId, syncKey);
-    }
+  async _openLink(link) {
+    if (link.type === 'folder') await this._confirmJoinFolder(link.folderId, link.key);
+    else await this._confirmJoin(link.key);
+  },
+
+  _offerAppHandoff(link, url) {
+    Modal.confirm(L('iosLinkTitle'), L('iosLinkMsg'), [
+      { label: L('iosLinkCopy'), cls: 'btn-outline', action: () => {
+        navigator.clipboard?.writeText(url).then(() => this._toast(L('syncCopied'))).catch(() => {});
+      }},
+      { label: L('iosLinkHere'), cls: 'btn-outline', action: async () => { await this._openLink(link); } }
+    ]);
+  },
+
+  _toast(msg) {
+    const t = document.getElementById('syncToast');
+    if (!t) return;
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 1800);
+  },
+
+  async pasteInto(inputId, folderId) {
+    let text = '';
+    try { text = await navigator.clipboard.readText(); } catch (e) { return; }
+    const el = document.getElementById(inputId);
+    if (el) el.value = (text || '').trim();
+    if (folderId) await this.joinFolder(folderId, text);
+    else await this.join(text);
   },
 
   onLocalChange(affectedFolderIds) {
@@ -1288,10 +1330,12 @@ const Sync = {
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
-  async join(key) {
-    key = (key || '').trim();
-    if (!key || !/^[a-zA-Z0-9_-]{32,128}$/.test(key)) return;
-    await this._confirmJoin(key);
+  async join(input) {
+    const link = SyncLink.parse(input);
+    if (!link) { if ((input || '').trim()) this._toast(L('syncLinkInvalid')); return; }
+    if (link.type === 'folder') { await this._confirmJoinFolder(link.folderId, link.key); return; }
+    if (link.key === this.main?.fullSyncKey) return;
+    await this._confirmJoin(link.key);
   },
 
   async _confirmJoin(fullKey) {
@@ -1371,11 +1415,12 @@ const Sync = {
     if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
   },
 
-  async joinFolder(folderId, fullKey) {
-    fullKey = (fullKey || '').trim();
-    if (!fullKey || !/^[a-zA-Z0-9_-]{32,128}$/.test(fullKey)) return;
+  async joinFolder(folderId, input) {
+    const link = SyncLink.parse(input);
+    if (!link) { if ((input || '').trim()) this._toast(L('syncLinkInvalid')); return; }
+    if (link.type === 'main') { await this.join(input); return; }
     if (Folders.isNoSync(folderId)) return;
-    await this._confirmJoinFolder(folderId, fullKey);
+    await this._confirmJoinFolder(folderId, link.key);
   },
 
   async _confirmJoinFolder(folderId, fullKey) {
@@ -1906,6 +1951,8 @@ const App = {
   openAdd(id) {
     this.editingId = id || null;
     document.getElementById('addModalTitle').textContent = id ? L('editTodo') : L('addTodo');
+    const headerSave = document.getElementById('addModalSave');
+    if (headerSave) headerSave.textContent = id ? L('update') : L('save');
     AddForm.render(id ? Store.todos.find(t => t.id === id) : null);
     Modal.open('add');
   },
@@ -1959,11 +2006,11 @@ const AddForm = {
     body.innerHTML = `
       <div class="form-group">
         <label class="form-label">${L('title')}</label>
-        <input class="form-input" id="f_title" placeholder="${L('titlePH')}" value="${Util.esc(t.title || '')}">
+        <input autocomplete="off" class="form-input" id="f_title" placeholder="${L('titlePH')}" value="${Util.esc(t.title || '')}" enterkeyhint="done" onkeydown="if(event.key==='Enter'&&!event.isComposing&&event.keyCode!==229){event.preventDefault();AddForm.save()}">
       </div>
       <div class="form-group">
         <label class="form-label">${L('notes')}</label>
-        <textarea class="form-input" id="f_notes" placeholder="${L('notesPH')}" rows="2">${Util.esc(t.notes || '')}</textarea>
+        <textarea autocomplete="off" class="form-input" id="f_notes" placeholder="${L('notesPH')}" rows="2">${Util.esc(t.notes || '')}</textarea>
       </div>
       ${Store.folders.length ? `<div class="form-group">
         <label class="form-label">${L('folder')}</label>
@@ -1973,7 +2020,7 @@ const AddForm = {
         <label class="form-label">${L('tags')}</label>
         <div class="tag-selected" id="f_tag_selected"></div>
         <div class="tag-input-wrap">
-          <input class="form-input form-input-sm" id="f_tag_input" placeholder="${L('tagsPH')}" autocomplete="off" onfocus="AddForm._showTagDropdown()" oninput="AddForm._filterTagDropdown()" onkeydown="if(event.key==='Enter'){event.preventDefault();AddForm._addTag(this.value)}">
+          <input autocomplete="off" class="form-input form-input-sm" id="f_tag_input" placeholder="${L('tagsPH')}" enterkeyhint="enter" data-kb-top onfocus="AddForm._showTagDropdown()" oninput="AddForm._filterTagDropdown()" onkeydown="if(event.key==='Enter'){event.preventDefault();AddForm._addTag(this.value)}">
           <div class="tag-dropdown" id="f_tag_dropdown"></div>
         </div>
       </div>
@@ -1988,7 +2035,7 @@ const AddForm = {
       <div id="scheduleFields"></div>
       <div class="form-group">
         <label class="form-label">${L('dueTime')}</label>
-        <input class="form-input form-input-time" type="time" id="f_time" value="${t.time || ''}">
+        <input autocomplete="off" class="form-input form-input-time" type="time" id="f_time" value="${t.time || ''}">
       </div>
       <button class="btn-primary" onclick="AddForm.save()">${existing ? L('update') : L('save')}</button>
       ${existing ? `<button class="btn-delete" onclick="AddForm.confirmDelete('${t.id}')">${L('deleteTodo')}</button>` : ''}`;
@@ -2022,14 +2069,14 @@ const AddForm = {
       c.innerHTML = `
         <div class="form-group">
           <label class="form-label">${L('date')}</label>
-          <input class="form-input" type="date" id="f_date" value="${singleDate}">
+          <input autocomplete="off" class="form-input" type="date" id="f_date" value="${singleDate}">
           <div class="chip-group" style="margin-top:8px">
             <button class="chip ${isUntilDone ? 'active' : ''}" id="chipUntilDone" onclick="AddForm.toggleSingleUntilDone(true)">${L('untilDone')}</button>
             <button class="chip ${!isUntilDone ? 'active' : ''}" id="chipOnlyToday" onclick="AddForm.toggleSingleUntilDone(false)">${L('thisDateOnly')}</button>
           </div>
         </div>
         <div class="span-count-row mb" id="singleCountRow" style="display:${isUntilDone ? 'flex' : 'none'}">
-          <input class="form-input form-input-narrow" type="number" id="f_singleCount" min="1" value="${singleCount}">
+          <input autocomplete="off" class="form-input form-input-narrow" type="number" id="f_singleCount" min="1" value="${singleCount}">
           <span class="span-count-label">× ${L('repetitions')}</span>
         </div>`;
     }
@@ -2037,11 +2084,11 @@ const AddForm = {
       const v = t.rangeCount || 0;
       c.innerHTML = `
         <div class="form-row">
-          <div class="form-group"><label class="form-label">${L('start')}</label><input class="form-input" type="date" id="f_startDate" value="${t.startDate || ds}"></div>
-          <div class="form-group" id="f_endGroup"><label class="form-label">${L('end')}</label><input class="form-input" type="date" id="f_endDate" value="${t.endDate || (() => { const d = new Date(Util.parseDate(ds)); d.setDate(d.getDate() + 3); return Util.dateStr(d); })()}"></div>
+          <div class="form-group"><label class="form-label">${L('start')}</label><input autocomplete="off" class="form-input" type="date" id="f_startDate" value="${t.startDate || ds}"></div>
+          <div class="form-group" id="f_endGroup"><label class="form-label">${L('end')}</label><input autocomplete="off" class="form-input" type="date" id="f_endDate" value="${t.endDate || (() => { const d = new Date(Util.parseDate(ds)); d.setDate(d.getDate() + 3); return Util.dateStr(d); })()}"></div>
         </div>
         <div class="span-count-row mb">
-          <input class="form-input form-input-narrow" type="number" id="f_rangeCount" min="0" value="${v > 0 ? v : ''}" placeholder="∞">
+          <input autocomplete="off" class="form-input form-input-narrow" type="number" id="f_rangeCount" min="0" value="${v > 0 ? v : ''}" placeholder="∞">
           <span class="span-count-label">× ${L('timesPerSpan')}</span>
         </div>`;
     }
@@ -2059,8 +2106,8 @@ const AddForm = {
         </div>
         <div id="freqFields"></div>
         <div class="form-row">
-          <div class="form-group"><label class="form-label">${L('starts')}</label><input class="form-input" type="date" id="f_recStart" value="${r.startDate || ds}"></div>
-          <div class="form-group"><label class="form-label">${L('endsOpt')}</label><input class="form-input" type="date" id="f_recEnd" value="${r.endDate || ''}"></div>
+          <div class="form-group"><label class="form-label">${L('starts')}</label><input autocomplete="off" class="form-input" type="date" id="f_recStart" value="${r.startDate || ds}"></div>
+          <div class="form-group"><label class="form-label">${L('endsOpt')}</label><input autocomplete="off" class="form-input" type="date" id="f_recEnd" value="${r.endDate || ''}"></div>
         </div>`;
 
       c.querySelectorAll('#freqTabs .chip').forEach(tab => {
@@ -2089,7 +2136,7 @@ const AddForm = {
         <div class="form-group">
           <div class="interval-row">
             <span class="interval-label">${L('every')}</span>
-            <input class="form-input form-input-narrow" type="number" id="f_weekInterval" min="1" max="52" value="${interval}">
+            <input autocomplete="off" class="form-input form-input-narrow" type="number" id="f_weekInterval" min="1" max="52" value="${interval}">
             <span class="interval-label">${L('weeksUnit')}</span>
           </div>
           <label class="form-label" style="margin-top:12px">${L('days')}</label>
@@ -2109,7 +2156,7 @@ const AddForm = {
               <select class="form-input" id="f_spanEnd">${[1,2,3,4,5,6,0].map(d => `<option value="${d}" ${r.spanEnd === d ? 'selected' : ''}>${L('dayFull')[d]}</option>`).join('')}</select>
             </div>
             <div class="span-count-row mt">
-              <input class="form-input" type="number" id="f_spanCount" min="1" max="7" value="${Math.max(1, parseInt(r.spanCount || 1))}">
+              <input autocomplete="off" class="form-input" type="number" id="f_spanCount" min="1" max="7" value="${Math.max(1, parseInt(r.spanCount || 1))}">
               <span class="span-count-label">× ${L('timesPerSpan')}</span>
             </div>
           </div>
@@ -2122,7 +2169,7 @@ const AddForm = {
       c.innerHTML = `<div class="form-group">
         <div class="interval-row">
           <span class="interval-label">${L('every')}</span>
-          <input class="form-input form-input-narrow" type="number" id="f_monthInterval" min="1" max="36" value="${interval}">
+          <input autocomplete="off" class="form-input form-input-narrow" type="number" id="f_monthInterval" min="1" max="36" value="${interval}">
           <span class="interval-label">${L('monthsUnit')}</span>
         </div>
         <div id="looseFixedFields" ${loose ? 'style="display:none"' : ''}>
@@ -2235,9 +2282,34 @@ const AddForm = {
 
   _closeHandler: null,
   
+  _positionTagDropdown() {
+    const dd = document.getElementById('f_tag_dropdown');
+    const input = document.getElementById('f_tag_input');
+    if (!dd || !input || !dd.classList.contains('open')) return;
+    const vv = window.visualViewport;
+    const top = vv ? vv.offsetTop : 0;
+    const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const r = input.getBoundingClientRect();
+    const header = document.querySelector('#addModal .modal-header');
+    const minTop = Math.max(top, header ? header.getBoundingClientRect().bottom : top);
+    const below = bottom - r.bottom - 8;
+    const above = r.top - minTop - 8;
+    if (below >= 140 || below >= above) {
+      dd.style.top = '';
+      dd.style.bottom = '';
+      dd.style.maxHeight = Math.max(80, below) + 'px';
+    } else {
+      dd.style.top = 'auto';
+      dd.style.bottom = 'calc(100% + 4px)';
+      dd.style.maxHeight = Math.max(80, above) + 'px';
+    }
+    dd.style.overflowY = 'auto';
+  },
+
   _showTagDropdown() {
       this._renderTagDropdownItems();
       document.getElementById('f_tag_dropdown').classList.add('open');
+      this._positionTagDropdown();
       if (this._closeHandler) {
         document.removeEventListener('click', this._closeHandler);
       }
@@ -2254,6 +2326,7 @@ const AddForm = {
   _filterTagDropdown() {
     this._renderTagDropdownItems();
     document.getElementById('f_tag_dropdown').classList.add('open');
+    this._positionTagDropdown();
   },
 
   _renderTagDropdownItems() {
@@ -2453,7 +2526,7 @@ const ListView = {
     const sorted = [...filtered].sort((a, b) => (b.created || 0) - (a.created || 0));
 
     let html = `<div class="list-search-row" style="margin-bottom:16px">
-      <input class="form-input form-input-sm" type="search" id="listSearchInput"
+      <input autocomplete="off" class="form-input form-input-sm" type="search" id="listSearchInput"
         placeholder="${Store.settings.lang === 'de' ? 'Suchen…' : 'Search…'}"
         value="${Util.esc(this.searchQuery)}"
         oninput="ListView.searchQuery=this.value;ListView.render()">
@@ -2578,7 +2651,8 @@ const Settings = {
         <button class="sync-privacy-link" onclick="Sync.showPrivacy()">${L('syncPrivacy')}</button>
       </div>
       <div class="sync-setup-row">
-        <input class="form-input form-input-sm" id="folderSyncInput_${f.id}" placeholder="${L('syncIdPH')}">
+        <input autocomplete="off" class="form-input form-input-sm" id="folderSyncInput_${f.id}" placeholder="${L('syncIdPH')}" autocapitalize="off" autocorrect="off" spellcheck="false">
+        ${navigator.clipboard?.readText ? `<button class="btn btn-outline btn-sm" onclick="Sync.pasteInto('folderSyncInput_${f.id}','${f.id}')">${L('syncPaste')}</button>` : ''}
         <button class="btn btn-outline btn-sm" onclick="Sync.joinFolder('${f.id}',document.getElementById('folderSyncInput_${f.id}').value)">${L('syncJoin')}</button>
         <button class="btn btn-outline btn-sm" onclick="Sync.generateForFolder('${f.id}')">${L('syncGenerate')}</button>
       </div>
@@ -2601,7 +2675,7 @@ const Settings = {
         return `<div class="folder-list-item editing">
           <div class="folder-dot-lg" style="background:${f.color}"></div>
           <div class="folder-list-item-body">
-            <input class="form-input form-input-sm" id="folderEditName" value="${Util.esc(f.name)}" onkeydown="if(event.key==='Enter')Settings.saveEditFolder()">
+            <input autocomplete="off" class="form-input form-input-sm" id="folderEditName" value="${Util.esc(f.name)}" onkeydown="if(event.key==='Enter')Settings.saveEditFolder()">
           </div>
           <div class="folder-list-item-actions">
             <button onclick="Settings.saveEditFolder()" title="Save"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg></button>
@@ -2609,7 +2683,7 @@ const Settings = {
           </div>
           <div class="folder-color-dots full-width">
             ${FOLDER_COLORS.map(c => `<div class="folder-color-dot ${f.color === c ? 'active' : ''}" style="background:${c}" data-color="${c}" onclick="Settings.setFolderColor('${f.id}','${c}')"></div>`).join('')}
-            <input type="color" class="color-native" value="${f.color}" onchange="Settings.setFolderColor('${f.id}',this.value)" title="${L('custom')}">
+            <input autocomplete="off" type="color" class="color-native" value="${f.color}" onchange="Settings.setFolderColor('${f.id}',this.value)" title="${L('custom')}">
           </div>
           <div class="folder-edit-options">
             <div class="toggle-row">
@@ -2676,7 +2750,8 @@ const Settings = {
     } else {
       syncHtml = `
         <div class="sync-join-row">
-          <input class="form-input" id="syncIdInput" placeholder="${L('syncIdPH')}">
+          <input autocomplete="off" class="form-input" id="syncIdInput" placeholder="${L('syncIdPH')}" autocapitalize="off" autocorrect="off" spellcheck="false">
+          ${navigator.clipboard?.readText ? `<button class="btn btn-outline" onclick="Sync.pasteInto('syncIdInput')">${L('syncPaste')}</button>` : ''}
           <button class="btn btn-outline" onclick="Sync.join(document.getElementById('syncIdInput').value)">${L('syncJoin')}</button>
           <button class="btn btn-outline" onclick="Sync.generate()">${L('syncGenerate')}</button>
         </div>
@@ -2708,7 +2783,7 @@ const Settings = {
             <div class="color-swatches">
               ${ACCENT_PRESETS.map(c => `<div class="color-swatch ${Store.settings.accent === c ? 'active' : ''}" style="background:${c}" data-color="${c}" onclick="Settings.setAccent('${c}')"></div>`).join('')}
             </div>
-            <input type="color" class="color-native" value="${Store.settings.accent}" onchange="Settings.setAccent(this.value)" title="${L('custom')}">
+            <input autocomplete="off" type="color" class="color-native" value="${Store.settings.accent}" onchange="Settings.setAccent(this.value)" title="${L('custom')}">
           </div>
         </div>
       </div>
@@ -2736,7 +2811,7 @@ const Settings = {
         </div>
         <div id="folderSortList">${foldersHtml}</div>
         <div class="folder-add-row">
-          <input class="form-input form-input-sm" id="newFolderName" placeholder="${L('folderNamePH')}" onkeydown="if(event.key==='Enter')Settings.addFolder()">
+          <input autocomplete="off" class="form-input form-input-sm" id="newFolderName" placeholder="${L('folderNamePH')}" onkeydown="if(event.key==='Enter')Settings.addFolder()">
           <button class="btn btn-outline" onclick="Settings.addFolder()">${L('addFolder')}</button>
         </div>
       </div>
@@ -2822,6 +2897,12 @@ const Settings = {
     const input = document.getElementById('newFolderName');
     const name = input?.value?.trim();
     if (!name) { input?.focus(); return; }
+    const link = SyncLink.parse(name);
+    if (link && link.type === 'folder') {
+      input.value = '';
+      Sync._confirmJoinFolder(link.folderId, link.key);
+      return;
+    }
     Folders.add(name);
     this.render();
     App._renderFolderDropdown();
@@ -4055,16 +4136,46 @@ const KbScroll = {
     this.unbind();
     const vv = window.visualViewport;
     if (!vv) return;
+    const body = el.querySelector('.modal-body') || el;
+    const kbHeight = () => Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    const pad = () => {
+      const h = kbHeight();
+      body.style.paddingBottom = h > 80 ? (h + 16) + 'px' : '';
+    };
+    const place = (t) => {
+      if (document.activeElement !== t) return;
+      if (t.hasAttribute('data-kb-top')) {
+        const target = t.closest('.form-group') || t;
+        const header = el.querySelector('.modal-header');
+        const headerBottom = header ? header.getBoundingClientRect().bottom : vv.offsetTop;
+        const delta = target.getBoundingClientRect().top - Math.max(headerBottom, vv.offsetTop) - 8;
+        if (Math.abs(delta) > 4) body.scrollBy({ top: delta, behavior: 'smooth' });
+        setTimeout(() => AddForm._positionTagDropdown(), 350);
+        return;
+      }
+      const r = t.getBoundingClientRect();
+      if (r.top < 60 || r.bottom > vv.offsetTop + vv.height - 8) t.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
     const onFocus = (e) => {
-      if (!e.target.matches('input,textarea,select')) return;
       const t = e.target;
-      const check = () => { if (document.activeElement === t && t.getBoundingClientRect().top < 60) t.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
-      const onR = () => setTimeout(check, 150);
+      if (!t.matches('input,textarea,select')) return;
+      const onR = () => setTimeout(() => { pad(); place(t); }, 150);
       vv.addEventListener('resize', onR, { once: true });
-      setTimeout(() => { vv.removeEventListener('resize', onR); check(); }, 1500);
+      setTimeout(() => { vv.removeEventListener('resize', onR); pad(); place(t); }, 600);
+    };
+    const onResize = () => {
+      pad();
+      AddForm._positionTagDropdown();
     };
     el.addEventListener('focusin', onFocus);
-    this._off = () => el.removeEventListener('focusin', onFocus);
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
+    this._off = () => {
+      el.removeEventListener('focusin', onFocus);
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', onResize);
+      body.style.paddingBottom = '';
+    };
   },
   unbind() { if (this._off) { this._off(); this._off = null; } }
 };
