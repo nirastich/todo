@@ -215,6 +215,12 @@
     emptyFolderTitle: 'Empty Folder',
     emptyFolderMsg: 'Delete all todos in this folder? This cannot be undone.',
     showTagsOnTodos: 'Show Tags on Todos',
-    showTagsOnTodosSub: 'Display tag labels on each todo in the day view'
+    showTagsOnTodosSub: 'Display tag labels on each todo in the day view',
+    syncLinkInvalid: 'Not a valid sync key or link',
+    syncPaste: 'Paste',
+    iosLinkTitle: 'Open in the installed app?',
+    iosLinkMsg: 'On iPhone and iPad, links always open in Safari, and an app added to the Home Screen has its own separate storage.\n\nTo use this link in the installed app: copy it, open the app from your Home Screen, go to Settings and tap "Paste" next to the sync field. Folder links can also be pasted into the new folder field.',
+    iosLinkCopy: 'Copy link',
+    iosLinkHere: 'Use in Safari'
   };
 })();
