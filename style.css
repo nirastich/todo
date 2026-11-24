@@ -1081,6 +1081,110 @@ button:focus-visible,
   -webkit-user-select: none;
 }
 
+/*  Overdue */
+
+.overdue-section {
+  margin-bottom: var(--space-12);
+}
+
+.overdue-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) 0 var(--space-8);
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  width: auto;
+}
+
+.overdue-toggle svg {
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--duration-normal) var(--ease-default);
+}
+
+.overdue-toggle.is-on svg {
+  transform: rotate(0deg);
+}
+
+.overdue-count {
+  min-width: 18px;
+  padding: 1px var(--space-6);
+  border-radius: var(--radius-pill);
+  background: var(--danger-bg);
+  font-weight: 600;
+  text-align: center;
+}
+
+.overdue-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.todo-item.overdue {
+  border-color: var(--danger-bg);
+}
+
+.todo-item.overdue .todo-title {
+  overflow-wrap: anywhere;
+}
+
+.todo-item.overdue .todo-time {
+  color: var(--danger);
+}
+
+.todo-item.overdue .btn {
+  flex-shrink: 0;
+}
+
+/*  Notification settings */
+
+.setting-action.push-times {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  flex-shrink: 1;
+  max-width: 100%;
+}
+
+.push-time {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.push-time .form-input-time {
+  max-width: 132px;
+}
+
+.push-time-remove {
+  display: inline-flex;
+  padding: var(--space-6);
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  width: auto;
+}
+
+.push-time-remove:hover {
+  color: var(--danger);
+}
+
+.push-note {
+  margin-top: var(--space-10);
+  align-items: flex-start;
+}
+
+.push-note svg {
+  margin-top: 2px;
+}
+
 /*  Skipped / Not Today */
 
 .skipped-toggle {
@@ -1294,6 +1398,16 @@ input[type="date"].form-input {
   font-size: 0.82rem;
   color: var(--text-3);
   margin-bottom: var(--space-16);
+}
+
+.form-hint {
+  font-size: 0.72rem;
+  color: var(--text-3);
+  margin-top: var(--space-6);
+}
+
+select.form-input:disabled {
+  opacity: 0.45;
 }
 
 .form-group.disabled {
@@ -2219,6 +2333,9 @@ input[type="date"].form-input {
   border-radius: var(--radius-pill);
   font-size: 0.82rem;
   font-weight: 500;
+  width: max-content;
+  max-width: calc(100vw - var(--space-32));
+  text-align: center;
   z-index: var(--z-toast);
   opacity: 0;
   transition:
