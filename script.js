@@ -48,6 +48,14 @@ const Crypto = {
       return JSON.parse(new TextDecoder().decode(decrypted));
     } catch (e) { console.error('Decryption failed:', e); return null; }
   },
+  async hashHex(text) {
+    const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+  },
+  // Decrypts a sync payload. Its content comes from another device or person, so it is normalized first.
+  async decryptPayload(encryptedBase64, fullSyncKey) {
+    return Sanitize.payload(await this.decrypt(encryptedBase64, fullSyncKey));
+  },
   async getDeleteToken(fullSyncKey) {
     const hash = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode('delete-token:' + fullSyncKey));
     return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 64);
@@ -60,6 +68,99 @@ const Crypto = {
 
 const FOLDER_COLORS = ['#4A9EFF','#A78BFA','#FB923C','#EF4444','#10B981','#F472B6','#FBBF24','#6366F1'];
 
+// Todos and folders also arrive from outside: other devices, people sharing a folder, import files.
+// Their fields end up in markup and event handlers, so types are normalized wherever data enters the app.
+// Well-formed data passes through unchanged; unknown fields are kept for forward compatibility.
+const Sanitize = {
+  ID: /^[A-Za-z0-9_-]{1,64}$/,
+  DATE: /^\d{4}-\d{2}-\d{2}$/,
+  TIME: /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/,
+  WORD: /^[a-z]{1,20}$/,
+  KEY: /^[a-zA-Z0-9_-]{32,128}$/,
+
+  _str(v) { return typeof v === 'string' ? v : (typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''); },
+  _date(v) { return typeof v === 'string' && this.DATE.test(v) ? v : (v === '' ? '' : null); },
+  _dates(v) { return Array.isArray(v) ? v.filter(d => typeof d === 'string' && this.DATE.test(d)) : []; },
+  _num(v) {
+    if (v == null) return v;
+    const n = typeof v === 'object' ? NaN : Number(v);
+    return Number.isFinite(n) ? n : null;
+  },
+  color(c) { return typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : FOLDER_COLORS[0]; },
+
+  todo(t) {
+    if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !this.ID.test(t.id)) return null;
+    const o = { ...t };
+    o.title = this._str(o.title);
+    if ('notes' in o && o.notes != null) o.notes = this._str(o.notes);
+    if ('time' in o) o.time = typeof o.time === 'string' && this.TIME.test(o.time) ? o.time : null;
+    if ('type' in o && !(typeof o.type === 'string' && this.WORD.test(o.type))) o.type = 'single';
+    for (const k of ['date', 'startDate', 'endDate']) if (k in o) o[k] = this._date(o[k]);
+    for (const k of ['rangeCount', 'sortOrder', '_modified', 'created']) if (k in o) o[k] = this._num(o[k]);
+    for (const k of ['completedDates', 'skippedDates']) if (k in o) o[k] = this._dates(o[k]);
+    if ('tags' in o) o.tags = Array.isArray(o.tags) ? o.tags.filter(tag => typeof tag === 'string') : [];
+    if ('folderId' in o && !(typeof o.folderId === 'string' && this.ID.test(o.folderId))) delete o.folderId;
+    if ('recurrence' in o) o.recurrence = this._recurrence(o.recurrence);
+    // remind: absent = default lead time, false = no reminder, number = minutes before the set time
+    if ('remind' in o && o.remind !== false && !Push.LEADS.includes(o.remind)) delete o.remind;
+    return o;
+  },
+
+  _recurrence(r) {
+    if (!r || typeof r !== 'object') return null;
+    const o = { ...r };
+    if (!(typeof o.frequency === 'string' && this.WORD.test(o.frequency))) o.frequency = 'daily';
+    for (const k of ['startDate', 'endDate']) if (k in o) o[k] = this._date(o[k]);
+    for (const k of ['interval', 'spanStart', 'spanEnd', 'spanCount', 'dayOfMonth', 'month']) if (k in o) o[k] = this._num(o[k]);
+    if ('days' in o) o.days = Array.isArray(o.days) ? o.days.map(d => this._num(d)).filter(d => d != null) : [];
+    for (const k of ['spanEnabled', 'loose']) if (k in o && typeof o[k] !== 'boolean') o[k] = !!o[k];
+    return o;
+  },
+
+  // Name, color and sync key of a folder. The id is checked by the caller.
+  _folderProps(f) {
+    const o = { ...f };
+    o.name = this._str(o.name);
+    o.color = this.color(o.color);
+    if ('_syncKey' in o && !(typeof o._syncKey === 'string' && this.KEY.test(o._syncKey))) delete o._syncKey;
+    return o;
+  },
+
+  folder(f) {
+    if (!f || typeof f !== 'object' || typeof f.id !== 'string' || !this.ID.test(f.id)) return null;
+    return this._folderProps(f);
+  },
+
+  todos(list) { return Array.isArray(list) ? list.map(t => this.todo(t)).filter(Boolean) : []; },
+  folders(list) { return Array.isArray(list) ? list.map(f => this.folder(f)).filter(Boolean) : []; },
+
+  // A decrypted sync payload: { todos, folders } for the main key, { todos, folder } for a shared folder.
+  payload(p) {
+    if (!p || typeof p !== 'object') return null;
+    const o = { ...p };
+    if ('todos' in o) o.todos = this.todos(o.todos);
+    if ('folders' in o) o.folders = this.folders(o.folders);
+    if ('folder' in o) {
+      o.folder = o.folder && typeof o.folder === 'object' ? this._folderProps(o.folder) : null;
+      if (o.folder && !(typeof o.folder.id === 'string' && this.ID.test(o.folder.id))) delete o.folder.id;
+    }
+    return o;
+  },
+
+  // Settings from an import file: known keys with valid values only.
+  settings(s) {
+    const o = {};
+    if (!s || typeof s !== 'object') return o;
+    if (s.theme === 'dark' || s.theme === 'light') o.theme = s.theme;
+    if (typeof s.lang === 'string' && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(s.lang)) o.lang = s.lang;
+    if (typeof s.accent === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.accent)) o.accent = s.accent;
+    if (s.activeFolder === null || s.activeFolder === '_none' || (typeof s.activeFolder === 'string' && this.ID.test(s.activeFolder))) o.activeFolder = s.activeFolder;
+    if (Array.isArray(s.activeTags)) o.activeTags = s.activeTags.filter(tag => typeof tag === 'string');
+    for (const k of ['showTagsOnTodos', 'overdue', 'badge']) if (typeof s[k] === 'boolean') o[k] = s[k];
+    return o;
+  }
+};
+
 const Store = {
   todos: [],
   folders: [],
@@ -69,11 +170,11 @@ const Store = {
     this._loadErrors = [];
     try {
       const raw = localStorage.getItem('todo_data');
-      if (raw) this.todos = JSON.parse(LZString.decompressFromUTF16(raw)) || [];
+      if (raw) this.todos = Sanitize.todos(JSON.parse(LZString.decompressFromUTF16(raw)));
     } catch (e) { this.todos = []; this._loadErrors.push('todos'); console.error('Failed to load todos:', e); }
     try {
       const raw = localStorage.getItem('todo_folders');
-      if (raw) this.folders = JSON.parse(raw) || [];
+      if (raw) this.folders = Sanitize.folders(JSON.parse(raw));
     } catch (e) { this.folders = []; this._loadErrors.push('folders'); console.error('Failed to load folders:', e); }
     try {
       const s = JSON.parse(localStorage.getItem('todo_settings'));
@@ -85,28 +186,37 @@ const Store = {
     try { this.hiddenFolders = JSON.parse(localStorage.getItem('todo_hidden_folders')) || []; }
     catch (e) { this.hiddenFolders = []; }
   },
-  saveHidden() { localStorage.setItem('todo_hidden_folders', JSON.stringify(this.hiddenFolders)); },
+  saveHidden() { localStorage.setItem('todo_hidden_folders', JSON.stringify(this.hiddenFolders)); Push.touch(); },
   
   loadIsolated() {
     try { this.isolatedFolders = JSON.parse(localStorage.getItem('todo_isolated_folders')) || []; }
     catch (e) { this.isolatedFolders = []; }
   },
-  saveIsolated() { localStorage.setItem('todo_isolated_folders', JSON.stringify(this.isolatedFolders)); },
+  saveIsolated() { localStorage.setItem('todo_isolated_folders', JSON.stringify(this.isolatedFolders)); Push.touch(); },
+
+  // Folders whose notifications are switched off on this device.
+  loadMuted() {
+    try { this.mutedFolders = JSON.parse(localStorage.getItem('todo_muted_folders')) || []; }
+    catch (e) { this.mutedFolders = []; }
+  },
+  saveMuted() { localStorage.setItem('todo_muted_folders', JSON.stringify(this.mutedFolders)); Push.touch(); },
 
   loadNoSync() {
     try { this.noSyncFolders = JSON.parse(localStorage.getItem('todo_nosync_folders')) || []; }
     catch (e) { this.noSyncFolders = []; }
   },
-  saveNoSync() { localStorage.setItem('todo_nosync_folders', JSON.stringify(this.noSyncFolders)); },
+  saveNoSync() { localStorage.setItem('todo_nosync_folders', JSON.stringify(this.noSyncFolders)); Push.touch(); },
 
   saveTodos(affectedFolderIds) {
     try { localStorage.setItem('todo_data', LZString.compressToUTF16(JSON.stringify(this.todos))); } catch (e) {}
     Sync.onLocalChange(affectedFolderIds);
+    Push.touch();
   },
 
   saveFolders(affectedFolderIds) {
     try { localStorage.setItem('todo_folders', JSON.stringify(this.folders)); } catch (e) {}
     Sync.onLocalChange(affectedFolderIds);
+    Push.touch();
   },
 
   saveSettings() { localStorage.setItem('todo_settings', JSON.stringify(this.settings)); }
@@ -169,15 +279,29 @@ function LF(key, ...args) { const val = I18N[Store.settings.lang]?.[key] ?? I18N
 
 const Util = {
   dateStr(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
-  parseDate(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); },
-  formatShort(s) { const d = this.parseDate(s); return `${d.getDate()} ${L('monthNames')[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`; },
+  parseDate(s) { const [y, m, d] = String(s || '').split('-').map(Number); return new Date(y, m - 1, d); },
+  formatShort(s) {
+    const d = this.parseDate(s);
+    if (isNaN(d)) return '';
+    return `${d.getDate()} ${L('monthNames')[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
+  },
   uid() {
     if (crypto.randomUUID) return crypto.randomUUID();
     return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
       (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
   },
   isToday(ds) { return ds === this.dateStr(new Date()); },
-  esc(s) { const el = document.createElement('div'); el.textContent = s; return el.innerHTML; },
+  esc(s) {
+    const el = document.createElement('div');
+    el.textContent = s;
+    // innerHTML leaves quotes alone, but the result is also used inside attributes.
+    return el.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  },
+  safeColor(c) { return typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c) ? c : ''; },
+  // For a string inside a quoted JS literal inside an HTML attribute, e.g. onclick="f('…')".
+  jsAttr(s) {
+    return this.esc(String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r'));
+  },
   safeId(s) { return s.replace(/[^a-zA-Z0-9_-]/g, ''); },
   formatTime(t) {
     if (!t) return '';
@@ -258,6 +382,15 @@ const Folders = {
     if (idx >= 0) Store.isolatedFolders.splice(idx, 1);
     else Store.isolatedFolders.push(id);
     Store.saveIsolated();
+  },
+
+  // Hidden folders never notify; others can be muted one by one.
+  isMuted(id) { return Store.mutedFolders.includes(id) || this.isHidden(id); },
+  toggleMuted(id) {
+    const idx = Store.mutedFolders.indexOf(id);
+    if (idx >= 0) Store.mutedFolders.splice(idx, 1);
+    else Store.mutedFolders.push(id);
+    Store.saveMuted();
   },
 
   isNoSync(id) { return Store.noSyncFolders.includes(id); },
@@ -451,6 +584,13 @@ const Todos = {
 
   isDone(todo, ds) { return todo.completedDates?.includes(ds) || false; },
 
+  isOpen(todo, ds) { return this.isVisible(todo, ds) && !this.isDone(todo, ds) && !this.isSkipped(todo, ds); },
+
+  // Part of the unfiltered day view: not in a hidden or isolated folder.
+  inDefaultView(todo) {
+    return !todo.folderId || (!Store.hiddenFolders.includes(todo.folderId) && !Store.isolatedFolders.includes(todo.folderId));
+  },
+
   isSkipped(todo, ds) { return todo.skippedDates?.includes(ds) || false; },
 
   toggleSkip(id, ds) {
@@ -543,7 +683,7 @@ const Todos = {
 const Modal = {
   open(name) {
     if (name === 'list')     { document.getElementById('listModalTitle').textContent = L('allTodos'); ListView.render(); }
-    if (name === 'settings') { document.getElementById('settingsModalTitle').textContent = L('settings'); Settings.render(); }
+    if (name === 'settings') { document.getElementById('settingsModalTitle').textContent = L('settings'); Settings.render(); Push.refreshInfo(); }
     if (name === 'detail')   { document.getElementById('detailModalTitle').textContent = L('todoDetails'); }
     this._returnFocus = document.activeElement;
     requestAnimationFrame(() => {
@@ -638,6 +778,7 @@ class SyncChannel {
     this._stopPoll();
     this._log('start', { version: this.version, dirty: this._dirty, serverId: this.serverId?.slice(0, 8) + '…' });
     await this._poll(true);
+    Push.touch();
   }
 
   stop() {
@@ -653,6 +794,7 @@ class SyncChannel {
     this._stopPoll();
     this._saveState();
     Crypto.clearKeyCache(keyToEvict);
+    Push.touch();
   }
 
   resetActivity() {
@@ -749,12 +891,13 @@ class SyncChannel {
 
   async _applyRemote(data) {
     if (!data.encrypted) return;
-    const decrypted = await Crypto.decrypt(data.encrypted, this.fullSyncKey);
+    const decrypted = await Crypto.decryptPayload(data.encrypted, this.fullSyncKey);
     if (!decrypted) { this._err('applyRemote', 'decryption failed'); return; }
     this._log('applyRemote', `applying v${data.version}: ${(decrypted.todos || []).length} todos`);
     this._applying = true;
     this._applyPayload(decrypted);
     this._applying = false;
+    Push.touch();
     this._lastKnownRemoteIds = new Set((decrypted.todos || []).map(t => t.id));
     this.version = data.version;
     this._saveState();
@@ -764,7 +907,7 @@ class SyncChannel {
   async _mergeOnConflict(data) {
     if (!data.encrypted) return;
     const localPayload = this._getPayload();
-    const remoteDecrypted = await Crypto.decrypt(data.encrypted, this.fullSyncKey);
+    const remoteDecrypted = await Crypto.decryptPayload(data.encrypted, this.fullSyncKey);
     if (!remoteDecrypted) { this._err('merge', 'decryption failed'); return; }
 
     const localTodos = localPayload.todos || [];
@@ -788,6 +931,7 @@ class SyncChannel {
     this._applying = true;
     this._applyPayload(merged);
     this._applying = false;
+    Push.touch();
     this._lastKnownRemoteIds = new Set(mergedTodos.map(t => t.id));
     this.version = data.version;
     this._saveState();
@@ -821,7 +965,7 @@ class SyncChannel {
       unionSkipped.sort();
       m.skippedDates = unionSkipped;
       m._modified = Math.max(lt._modified || lt.created || 0, rt._modified || rt.created || 0);
-      if (lt.title !== rt.title || lt.notes !== rt.notes || lt.time !== rt.time ||
+      if (lt.title !== rt.title || lt.notes !== rt.notes || lt.time !== rt.time || lt.remind !== rt.remind ||
           lt.type !== rt.type || lt.folderId !== rt.folderId || lt.sortOrder !== rt.sortOrder ||
           JSON.stringify(lt.tags || []) !== JSON.stringify(rt.tags || []) ||
           lt.date !== rt.date ||
@@ -835,6 +979,7 @@ class SyncChannel {
         m.title = source.title;
         m.notes = source.notes;
         m.time = source.time;
+        if (source.remind !== undefined) m.remind = source.remind; else delete m.remind;
         m.type = source.type;
         if (source.folderId) m.folderId = source.folderId; else delete m.folderId;
         if (source.sortOrder != null) m.sortOrder = source.sortOrder; else delete m.sortOrder;
@@ -859,7 +1004,7 @@ class SyncChannel {
   }
 
   async _resolveDirtyConflict(remoteData) {
-    const decrypted = remoteData.encrypted ? await Crypto.decrypt(remoteData.encrypted, this.fullSyncKey) : null;
+    const decrypted = remoteData.encrypted ? await Crypto.decryptPayload(remoteData.encrypted, this.fullSyncKey) : null;
     this._warn('dirtyConflict', `local v${this.version} dirty, remote v${remoteData.version}, remote todos=${(decrypted?.todos || []).length}`);
 
     return new Promise(resolve => {
@@ -990,6 +1135,7 @@ class SyncChannel {
 
   async deleteServer() {
     if (!this.serverId) return;
+    if (this.id === 'main') await Push.deleteGroup();
     try {
       await fetch('sync.php', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1287,12 +1433,13 @@ const Sync = {
     ]);
   },
 
-  _toast(msg) {
+  _toast(msg, ms = 1800) {
     const t = document.getElementById('syncToast');
     if (!t) return;
     t.textContent = msg;
     t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 1800);
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => t.classList.remove('show'), ms);
   },
 
   async pasteInto(inputId, folderId) {
@@ -1349,7 +1496,7 @@ const Sync = {
 
     let decryptedData = { todos: [], folders: [] };
     if (remote.encrypted) {
-      const decrypted = await Crypto.decrypt(remote.encrypted, fullKey);
+      const decrypted = await Crypto.decryptPayload(remote.encrypted, fullKey);
       if (decrypted) { decryptedData = { todos: decrypted.todos || [], folders: decrypted.folders || [] }; }
       else { return; }
     }
@@ -1434,7 +1581,7 @@ const Sync = {
 
     let decryptedData = { todos: [], folder: null };
     if (remote.encrypted) {
-      const decrypted = await Crypto.decrypt(remote.encrypted, fullKey);
+      const decrypted = await Crypto.decryptPayload(remote.encrypted, fullKey);
       if (decrypted) { decryptedData = { todos: decrypted.todos || [], folder: decrypted.folder || null }; }
       else { return; }
     }
@@ -1526,7 +1673,6 @@ const Sync = {
 
   showPrivacy() {
     const body = document.getElementById('detailModalBody');
-    document.getElementById('detailModalTitle').textContent = L('syncPrivacyTitle');
     body.innerHTML = `
       <div class="privacy-body">
         <h4>${L('syncPrivacyH1')}</h4>
@@ -1544,6 +1690,8 @@ const Sync = {
         <p>${L('syncPrivacyRights')}</p>
         <h4>${L('syncPrivacyH6')}</h4>
         <p>${L('syncPrivacyFolder')}</p>
+        <h4>${L('pushPrivacyH')}</h4>
+        <p>${L('pushPrivacyText')}</p>
         <h4>${L('syncPrivacyH5')}</h4>
         <p>${L('syncPrivacyNo')}</p>
       </div>
@@ -1552,6 +1700,739 @@ const Sync = {
         <button class="btn btn-danger" onclick="Modal.close('detail');Sync.deleteServer()">${L('syncDeleteServer')}</button>
       </div>` : ''}`;
     Modal.open('detail');
+    // Modal.open() sets the generic title, so the specific one goes in afterwards.
+    document.getElementById('detailModalTitle').textContent = L('syncPrivacyTitle');
+  }
+};
+
+const Overdue = {
+  LOOKBACK_DAYS: 30,
+
+  _isDate(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); },
+
+  // Latest date before `ds` on which the todo was scheduled, within the lookback window.
+  lastDateBefore(todo, ds) {
+    const d = Util.parseDate(ds);
+    d.setDate(d.getDate() - this.LOOKBACK_DAYS);
+    const minDs = Util.dateStr(d);
+    if (todo.type === 'single') {
+      return this._isDate(todo.date) && todo.date < ds && todo.date >= minDs ? todo.date : null;
+    }
+    if (todo.type === 'range') {
+      if (!this._isDate(todo.endDate) || todo.endDate >= ds || todo.endDate < minDs) return null;
+      return this._isDate(todo.startDate) && todo.startDate <= todo.endDate ? todo.endDate : null;
+    }
+    const cur = Util.parseDate(ds);
+    for (let i = 0; i < this.LOOKBACK_DAYS; i++) {
+      cur.setDate(cur.getDate() - 1);
+      const curDs = Util.dateStr(cur);
+      if (Todos.isOnDate(todo, curDs)) return curDs;
+    }
+    return null;
+  },
+
+  // The missed date a todo is still open for as of `ds`, or null.
+  // A todo that is scheduled again on `ds` is not overdue: the new occurrence replaces the missed one.
+  dateFor(todo, ds) {
+    if (Todos.isOnDate(todo, ds)) return null;
+    const last = this.lastDateBefore(todo, ds);
+    if (!last) return null;
+    if (!Todos.isVisible(todo, last) || Todos.isDone(todo, last) || Todos.isSkipped(todo, last)) return null;
+    return last;
+  },
+
+  list(todos, ds) {
+    const out = [];
+    todos.forEach(todo => {
+      const date = this.dateFor(todo, ds);
+      if (date) out.push({ todo, date });
+    });
+    return out.sort((a, b) => a.date.localeCompare(b.date)
+      || (a.todo.time || '99').localeCompare(b.todo.time || '99')
+      || String(a.todo.title).localeCompare(String(b.todo.title)));
+  },
+
+  moveToToday(id) {
+    const todo = Store.todos.find(t => t.id === id);
+    if (!todo || todo.type !== 'single') return;
+    todo.date = Util.dateStr(new Date());
+    todo._modified = Date.now();
+    Store.saveTodos(todo.folderId ? [todo.folderId] : null);
+    App.render();
+  }
+};
+
+const Badge = {
+  get supported() { return 'setAppBadge' in navigator; },
+
+  // Open todos of today plus overdue ones, as the unfiltered day view would show them.
+  count() {
+    const today = Util.dateStr(new Date());
+    const todos = Store.todos.filter(t => Todos.inDefaultView(t));
+    const open = todos.filter(t => Todos.isOpen(t, today)).length;
+    return open + (Store.settings.overdue !== false ? Overdue.list(todos, today).length : 0);
+  },
+
+  update() {
+    if (!this.supported) return;
+    const n = Store.settings.badge !== false ? this.count() : 0;
+    try { (n > 0 ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {}); } catch (e) {}
+  }
+};
+
+// Small key-value store shared with the service worker, which cannot read localStorage.
+const PushDB = {
+  _tx(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('todo_push', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('kv');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const tx = db.transaction('kv', mode);
+        const req = fn(tx.objectStore('kv'));
+        tx.oncomplete = () => { db.close(); resolve(req.result); };
+        tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    });
+  },
+  get(key) { return this._tx('readonly', s => s.get(key)); },
+  set(key, value) { return this._tx('readwrite', s => s.put(value, key)); },
+  del(key) { return this._tx('readwrite', s => s.delete(key)); }
+};
+
+/*
+ * Push notifications.
+ *
+ * Reminders are precomputed on the device, encrypted and uploaded as a schedule
+ * (timestamp + ciphertext). The server sends each ciphertext when it is due and
+ * the service worker decrypts it. The server never sees titles or the keys.
+ *
+ * Schedules live in "channels":
+ *  - group: derived from the sync key. Every device with that key keeps the
+ *    schedule current, so a todo added on one device reminds on the others.
+ *  - local: random, for this device only. Used without sync, and for todos in
+ *    folders that are excluded from sync.
+ */
+const Push = {
+  HORIZON_DAYS: 30,
+  MAX_ENTRIES: 400,
+  MAX_BODY: 240000,
+  LEADS: [0, 5, 10, 15, 30, 60],
+  MAX_DIGESTS: 4,
+
+  info: null,            // null = unknown, false = server has no push, else { key, cronOk }
+  _state: null,
+  _timer: null,
+  _dueAt: 0,
+  _running: false,
+  _rerun: false,
+  _lastRun: 0,
+  _groupCache: null,
+  _tagCache: {},
+  _uploaded: {},         // channel id -> fingerprint of the schedule on the server
+  _registered: {},       // channel id -> fingerprint of the registration sent in this session
+  _publishChecked: null,
+  _warned: false,
+  _reg: null,
+
+  get supported() {
+    return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && 'indexedDB' in window;
+  },
+
+  get state() {
+    if (!this._state) {
+      let s = null;
+      try { s = JSON.parse(localStorage.getItem('todo_push')); } catch (e) {}
+      this._state = {
+        on: !!s?.on,
+        endpoint: typeof s?.endpoint === 'string' ? s.endpoint : '',
+        vapid: typeof s?.vapid === 'string' ? s.vapid : '',
+        local: s?.local?.id && s?.local?.token ? { id: s.local.id, token: s.local.token } : null,
+        subs: Array.isArray(s?.subs) ? s.subs.filter(c => c?.id && c?.token) : [],
+        publish: !!s?.publish
+      };
+    }
+    return this._state;
+  },
+
+  _save() { try { localStorage.setItem('todo_push', JSON.stringify(this.state)); } catch (e) {} },
+
+  // Reminder settings. With sync they are shared through the group channel, newest wins.
+  get config() {
+    const c = Store.settings.push || {};
+    const isTime = t => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+    // digestTime is the single summary time of the first version of this feature.
+    let digestTimes = Array.isArray(c.digestTimes) ? [...new Set(c.digestTimes.filter(isTime))].sort().slice(0, this.MAX_DIGESTS) : [];
+    if (!digestTimes.length) digestTimes = [isTime(c.digestTime) ? c.digestTime : '08:00'];
+    return {
+      lead: this.LEADS.includes(c.lead) ? c.lead : 0,
+      digest: c.digest !== false,
+      digestTimes,
+      ts: Number.isSafeInteger(c.ts) && c.ts > 0 ? c.ts : 0
+    };
+  },
+
+  // Reminders matter on this device: it is subscribed itself, or it maintains the schedule for others.
+  get relevant() { return this.subscribed || this.state.publish; },
+
+  // Minutes before the set time at which a todo reminds. A todo can override the general setting.
+  leadFor(todo) { return this.LEADS.includes(todo.remind) ? todo.remind : this.config.lead; },
+  leadLabel(minutes) { return minutes === 0 ? L('pushLeadAt') : LF('pushLeadMin', minutes); },
+
+  // index = which summary time, value = new time or null to remove it
+  setDigestTime(index, value) {
+    const times = [...this.config.digestTimes];
+    if (value === null) times.splice(index, 1);
+    else if (value) times[index] = value;
+    if (times.length) this.setConfig({ digestTimes: times });
+  },
+
+  addDigestTime() {
+    const times = this.config.digestTimes;
+    const next = ['18:00', '13:00', '21:00', '08:00', '12:00'].find(t => !times.includes(t));
+    if (next && times.length < this.MAX_DIGESTS) this.setConfig({ digestTimes: [...times, next] });
+  },
+
+  setConfig(patch) {
+    Store.settings.push = { ...this.config, ...patch, ts: Math.max(Date.now(), this.config.ts + 1) };
+    Store.saveSettings();
+    this.touch(800);
+    if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+  },
+
+  // This device shows notifications.
+  get active() { return this.state.on && this.supported && Notification.permission === 'granted'; },
+  get subscribed() { return this.active && this.state.subs.length > 0; },
+
+  init() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data?.type === 'push-open') this.open(e.data.date, e.data.todo);
+      });
+      // Kept at hand so enable() can subscribe without waiting.
+      navigator.serviceWorker.ready.then(reg => { this._reg = reg; }).catch(() => {});
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      Badge.update();
+      if (Date.now() - this._lastRun > 30 * 60000) { this._publishChecked = null; this.touch(1000); }
+    });
+    window.addEventListener('online', () => this.touch(3000));
+    if (this.state.on && this.supported && Notification.permission !== 'granted') this._warnOnce();
+    this.touch(1500);
+  },
+
+  // Reminders are switched on but cannot arrive right now: say so once instead of failing silently.
+  _warnOnce() {
+    if (this._warned) return;
+    this._warned = true;
+    Sync._toast(L('pushProblem'), 6000);
+  },
+
+  // Opened from a notification: jump to the day and show the todo.
+  open(date, todo) {
+    for (const name of ['detail', 'add', 'list', 'settings']) {
+      if (document.getElementById(name + 'Modal').classList.contains('open')) Modal.close(name);
+    }
+    App.jumpTo(Overdue._isDate(date) ? date : Util.dateStr(new Date()));
+    if (Overdue._isDate(date) && typeof todo === 'string' && Store.todos.some(t => t.id === todo)) DetailView.show(todo, date);
+  },
+
+  openFromUrl() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('date') && !params.has('todo')) return;
+    history.replaceState(null, '', location.pathname + location.hash);
+    this.open(params.get('date'), params.get('todo'));
+  },
+
+  /* ----- server ----- */
+
+  async _api(body) {
+    const res = await fetch('push.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    let data = null;
+    try { data = await res.json(); } catch (e) {}
+    return { status: res.status, data };
+  },
+
+  async loadInfo(force) {
+    if (this.info !== null && !force) return this.info;
+    try {
+      const r = await this._api({ op: 'info' });
+      this.info = r.status === 200 && r.data?.ok && r.data.key ? { key: r.data.key, cronOk: !!r.data.cronOk } : false;
+    } catch (e) { return this.info; }
+    return this.info;
+  },
+
+  // Called when the settings open, so the section reflects the server's current state.
+  refreshInfo() {
+    if (!this.supported && !this.state.publish) return;
+    this.loadInfo(true).then(() => {
+      if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+    });
+  },
+
+  /* ----- channels and crypto ----- */
+
+  _randomHex(bytes) {
+    return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), b => b.toString(16).padStart(2, '0')).join('');
+  },
+
+  _b64uToBytes(s) {
+    const pad = '='.repeat((4 - s.length % 4) % 4);
+    return Uint8Array.from(atob((s + pad).replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+  },
+
+  _bytesToB64u(bytes) {
+    let bin = '';
+    bytes.forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  },
+
+  async _groupChannel() {
+    const syncKey = Sync.enabled ? Sync.fullSyncKey : null;
+    if (!syncKey) return null;
+    if (this._groupCache?.syncKey === syncKey) return this._groupCache.channel;
+    // Id, token and key are derived separately, so none of them reveals the sync key or each other.
+    const id = await Crypto.hashHex('push-id:' + syncKey);
+    const token = await Crypto.hashHex('push-token:' + syncKey);
+    const enc = new TextEncoder();
+    const material = await crypto.subtle.importKey('raw', enc.encode(syncKey), 'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: enc.encode('todo-push-salt-v1:' + id.substring(0, 16)), iterations: 100000, hash: 'SHA-256' },
+      material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+    const channel = { scope: 'group', id, token, key };
+    this._groupCache = { syncKey, channel };
+    return channel;
+  },
+
+  async _localChannel() {
+    const st = this.state;
+    let key = st.local ? await PushDB.get('localKey') : null;
+    if (!st.local || !key) {
+      key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      await PushDB.set('localKey', key);
+      st.local = { id: this._randomHex(32), token: this._randomHex(32) };
+      this._save();
+    }
+    return { scope: 'local', id: st.local.id, token: st.local.token, key };
+  },
+
+  async _encrypt(ch, data, aad) {
+    const enc = new TextEncoder();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const cipher = new Uint8Array(await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, additionalData: enc.encode(aad) }, ch.key, enc.encode(JSON.stringify(data))
+    ));
+    const out = new Uint8Array(iv.length + cipher.length);
+    out.set(iv, 0);
+    out.set(cipher, iv.length);
+    let bin = '';
+    out.forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin);
+  },
+
+  async _decrypt(ch, b64, aad) {
+    try {
+      const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const plain = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: raw.slice(0, 12), additionalData: new TextEncoder().encode(aad) }, ch.key, raw.slice(12)
+      );
+      return JSON.parse(new TextDecoder().decode(plain));
+    } catch (e) { return null; }
+  },
+
+  // Pseudonymous folder tag: lets the server skip reminders for folders hidden on a device
+  // without learning which folder it is.
+  async _folderTag(ch, folderId) {
+    if (!folderId) return '';
+    const cacheKey = ch.id + '|' + folderId;
+    if (!this._tagCache[cacheKey]) this._tagCache[cacheKey] = (await Crypto.hashHex(ch.id + '|f|' + folderId)).substring(0, 8);
+    return this._tagCache[cacheKey];
+  },
+
+  async _folderTags(ch, folderIds) {
+    const tags = [];
+    for (const fid of folderIds || []) tags.push(await this._folderTag(ch, fid));
+    return tags.filter(Boolean);
+  },
+
+  /* ----- schedule ----- */
+
+  // Which todos belong to which channel.
+  _scopes() {
+    if (!Sync.enabled) return { group: [], local: Store.todos };
+    const noSync = new Set(Store.noSyncFolders || []);
+    return {
+      group: Store.todos.filter(t => !t.folderId || !noSync.has(t.folderId)),
+      local: Store.todos.filter(t => t.folderId && noSync.has(t.folderId))
+    };
+  },
+
+  _continuesAfter(todo, ds) {
+    if (todo.type === 'single') return todo.date > ds;
+    if (todo.type === 'range') return !todo.endDate || todo.endDate > ds;
+    return !!todo.recurrence && (!todo.recurrence.endDate || todo.recurrence.endDate > ds);
+  },
+
+  // Everything to notify about within the horizon, in plain text and ordered by time.
+  _plan(todos, withDigest) {
+    const cfg = this.config;
+    const now = Date.now();
+    const hasTime = t => /^([01]\d|2[0-3]):[0-5]\d$/.test(t.time || '');
+    const timed = todos.filter(hasTime);
+    const digest = withDigest && cfg.digest;
+    const [dh, dm] = cfg.digestTimes[0].split(':').map(Number);
+    const at = (day, h, m) => new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m).getTime();
+    const byTime = (a, b) => (a.time || '99').localeCompare(b.time || '99') || String(a.title).localeCompare(String(b.title));
+    let items = [];
+
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    let ds = Util.dateStr(day);
+    for (let i = 0; i <= this.HORIZON_DAYS; i++) {
+      ds = Util.dateStr(day);
+      timed.forEach(t => {
+        if (t.remind === false || !Todos.isOpen(t, ds)) return;
+        const [h, m] = t.time.split(':').map(Number);
+        const fire = at(day, h, m) - this.leadFor(t) * 60000;
+        if (fire <= now) return;
+        items.push({
+          key: `r|${t.id}|${ds}|${t.time}`, t: Math.floor(fire / 1000), k: 'r', folder: t.folderId || null,
+          data: { t: 'r', id: t.id, d: ds, tm: t.time, ti: String(t.title || '').substring(0, 100) }
+        });
+      });
+      const summaries = !digest ? [] : cfg.digestTimes
+        .map(time => at(day, ...time.split(':').map(Number)))
+        .filter(fire => fire > now);
+      if (summaries.length) {
+        // A summary is only sent while something is open, so a later one stays silent once everything is done.
+        const open = todos.filter(t => Todos.isOpen(t, ds)).sort(byTime);
+        const overdue = Overdue.list(todos, ds).map(o => o.todo);
+        if (open.length || overdue.length) {
+          summaries.forEach(fire => items.push({ key: `d|${ds}`, t: Math.floor(fire / 1000), k: 'd', folder: null, digest: { ds, open, overdue } }));
+        }
+      }
+      if (i < this.HORIZON_DAYS) day.setDate(day.getDate() + 1);
+    }
+
+    items.sort((a, b) => a.t - b.t);
+    const truncated = items.length > this.MAX_ENTRIES;
+    if (truncated) items = items.slice(0, this.MAX_ENTRIES - 1);
+    // Tell the user before the schedule runs dry, in case the app is not opened for weeks.
+    const more = truncated || todos.some(t => this._continuesAfter(t, ds) && (digest || (hasTime(t) && t.remind !== false)));
+    if (more) {
+      const end = truncated ? items[items.length - 1].t : Math.floor(at(day, dh, dm) / 1000);
+      if (end * 1000 > now) items.push({ key: `x|${ds}`, t: end, k: 'x', folder: null, data: { t: 'x' } });
+    }
+    return items;
+  },
+
+  async _upload(ch, todos, withDigest, isRetry) {
+    const cfg = this.config;
+    const items = this._plan(todos, withDigest);
+    for (const it of items) {
+      it.g = await this._folderTag(ch, it.folder);
+      if (!it.digest) continue;
+      // Counts per folder tag, so each device can leave out the folders it hides.
+      const counts = {};
+      for (const [list, idx] of [[it.digest.open, 0], [it.digest.overdue, 1]]) {
+        for (const t of list) {
+          const tag = await this._folderTag(ch, t.folderId);
+          (counts[tag] = counts[tag] || [0, 0])[idx]++;
+        }
+      }
+      const titles = [];
+      for (const t of it.digest.open.slice(0, 6)) titles.push([String(t.title || '').substring(0, 40), await this._folderTag(ch, t.folderId)]);
+      it.data = { t: 'd', d: it.digest.ds, c: counts, it: titles };
+    }
+
+    const print = await Crypto.hashHex(JSON.stringify([items.map(it => [it.key, it.t, it.g, it.data]), ch.scope === 'group' ? cfg : null]));
+    if (this._uploaded[ch.id] === print) return true;
+
+    let entries = [];
+    for (const it of items) {
+      const i = (await Crypto.hashHex(`${ch.id}|${it.key}|${it.t}`)).substring(0, 16);
+      const entry = { i, t: it.t, k: it.k, c: await this._encrypt(ch, it.data, i + ':' + it.k) };
+      if (it.g) entry.g = it.g;
+      entries.push(entry);
+    }
+    const body = { op: 'schedule', id: ch.id, token: ch.token, entries };
+    if (ch.scope === 'group') {
+      // digestTime keeps devices that still run the first version of this feature working.
+      body.cfg = await this._encrypt(ch, { ...cfg, digestTime: cfg.digestTimes[0] }, 'cfg');
+      body.cfgTs = cfg.ts;
+    }
+    while (JSON.stringify(body).length > this.MAX_BODY && entries.length > 1) {
+      entries = body.entries = entries.slice(0, Math.floor(entries.length * 0.8));
+    }
+
+    const r = await this._api(body);
+    if (r.status === 200 && r.data?.ok) { this._uploaded[ch.id] = print; return true; }
+    if (r.status === 200 && r.data?.conflict && !isRetry) {
+      // Another device changed the reminder settings: take them over and plan again.
+      await this._adoptConfig(ch, r.data.cfg);
+      if (this.config.ts < r.data.cfgTs) {
+        // Unreadable settings on the server: replace them with ours.
+        Store.settings.push = { ...this.config, ts: r.data.cfgTs + 1 };
+        Store.saveSettings();
+      }
+      return this._upload(ch, todos, withDigest, true);
+    }
+    if (r.status === 404) { delete this._registered[ch.id]; return 'gone'; }
+    return false;
+  },
+
+  async _adoptConfig(ch, cfgB64) {
+    if (!cfgB64) return;
+    const remote = await this._decrypt(ch, cfgB64, 'cfg');
+    if (!remote || !(remote.ts > this.config.ts)) return;
+    Store.settings.push = { lead: remote.lead, digest: remote.digest, digestTimes: remote.digestTimes, digestTime: remote.digestTime, ts: Math.floor(remote.ts) };
+    Store.saveSettings();
+    if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+  },
+
+  _strings() {
+    return {
+      lang: Store.settings.lang, badge: Store.settings.badge !== false,
+      fallbackTitle: L('pushFallbackTitle'), fallbackBody: L('pushFallbackBody'),
+      digestOne: L('pushDigestOne'), digestMany: L('pushDigestMany'),
+      digestOverdue: L('pushDigestOverdue'), digestNone: L('pushDigestNone'),
+      renewTitle: L('pushRenewTitle'), renewBody: L('pushRenewBody'),
+      testTitle: L('pushTestTitle'), testBody: L('pushTestBody')
+    };
+  },
+
+  /* ----- keeping server and device in step ----- */
+
+  // Called after every change to todos, folders, sync or settings. Changes in quick succession
+  // are collected into one run. A later call never pushes back a run that is already scheduled.
+  touch(delay = 2500) {
+    const due = Date.now() + delay;
+    if (this._timer && this._dueAt <= due) return;
+    clearTimeout(this._timer);
+    this._dueAt = due;
+    this._timer = setTimeout(() => { this._timer = null; this.run(); }, delay);
+  },
+
+  // Runs a user action without a background run interleaving.
+  async _exclusive(fn) {
+    clearTimeout(this._timer);
+    this._timer = null;
+    while (this._running) await new Promise(r => setTimeout(r, 100));
+    this._running = true;
+    try { await fn(); } catch (e) { console.warn('Push:', e); }
+    this._running = false;
+  },
+
+  async run() {
+    if (this._running) { this._rerun = true; return; }
+    this._running = true;
+    try { await this._run(); } catch (e) { console.warn('Push:', e); }
+    this._running = false;
+    this._lastRun = Date.now();
+    if (this._rerun) { this._rerun = false; this.touch(500); }
+  },
+
+  async _run() {
+    if (!window.crypto?.subtle || !navigator.onLine) return;
+    const group = await this._groupChannel();
+    if (this.active) return this._runSubscribed(group);
+    if (group) return this._runPublisher(group);
+  },
+
+  // Not subscribed here, but another device with the same sync key is:
+  // keep its schedule current whenever this device changes something.
+  async _runPublisher(group) {
+    const st = this.state;
+    const checked = this._publishChecked;
+    // Ask once per session, and again every 10 minutes while nobody is subscribed
+    // (a device may have turned reminders on in the meantime).
+    if (!checked || checked.id !== group.id || (!st.publish && Date.now() - checked.at > 600000)) {
+      const r = await this._api({ op: 'status', id: group.id, token: group.token });
+      this._publishChecked = { id: group.id, at: Date.now() };
+      st.publish = r.status === 200 && !!r.data?.exists && r.data.subs > 0;
+      this._save();
+      if (st.publish) await this._adoptConfig(group, r.data.cfg);
+    }
+    if (!st.publish) return;
+    if (await this._upload(group, this._scopes().group, true) === 'gone') {
+      st.publish = false;
+      this._save();
+    }
+  },
+
+  async _subscription(vapidKey) {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      // A subscription is bound to the server key it was created with.
+      const current = sub.options?.applicationServerKey
+        ? this._bytesToB64u(new Uint8Array(sub.options.applicationServerKey))
+        : this.state.vapid;
+      if (current && current !== vapidKey) {
+        try { await sub.unsubscribe(); } catch (e) {}
+        sub = null;
+      }
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: this._b64uToBytes(vapidKey) });
+    return sub;
+  },
+
+  async _runSubscribed(group) {
+    const st = this.state;
+    const info = await this.loadInfo();
+    if (!info) return;
+    if (!info.cronOk) this._warnOnce();
+    const json = (await this._subscription(info.key)).toJSON();
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return;
+
+    const scopes = this._scopes();
+    const wanted = [];
+    if (group) wanted.push(group);
+    if (!group || this._plan(scopes.local, false).length) wanted.push(await this._localChannel());
+
+    // What the service worker needs to decrypt and render a push. Stored first: if the browser
+    // cannot keep it, a push could never be shown, so nothing gets registered in that case.
+    const keys = {};
+    const digestMute = [];
+    for (const ch of wanted) {
+      keys[ch.id.substring(0, 8)] = ch.key;
+      digestMute.push(...await this._folderTags(ch, [...new Set([...Store.hiddenFolders, ...Store.isolatedFolders, ...Store.mutedFolders])]));
+    }
+    await PushDB.set('keys', keys);
+    await PushDB.set('mute', digestMute);
+    await PushDB.set('strings', this._strings());
+
+    for (const old of st.subs.filter(s => !wanted.some(w => w.id === s.id))) {
+      try { await this._api({ op: 'unsubscribe', id: old.id, token: old.token, endpoint: st.endpoint || json.endpoint }); } catch (e) {}
+    }
+    st.subs = st.subs.filter(s => wanted.some(w => w.id === s.id));
+
+    const registered = [];
+    for (const ch of wanted) {
+      const mute = await this._folderTags(ch, [...new Set([...Store.hiddenFolders, ...Store.mutedFolders])]);
+      const print = JSON.stringify([json.endpoint, mute]);
+      if (this._registered[ch.id] !== print) {
+        // Sent once per session even if nothing changed, in case the server lost the registration.
+        const r = await this._api({
+          op: 'subscribe', id: ch.id, token: ch.token, mute,
+          replaces: st.endpoint && st.endpoint !== json.endpoint ? st.endpoint : undefined,
+          sub: { endpoint: json.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }
+        });
+        if (r.status !== 200 || !r.data?.ok) continue;
+        this._registered[ch.id] = print;
+        delete this._uploaded[ch.id];
+        if (!st.subs.some(s => s.id === ch.id)) st.subs.push({ id: ch.id, token: ch.token });
+        if (ch.scope === 'group') await this._adoptConfig(ch, r.data.cfg);
+      }
+      registered.push({ ch, mute });
+    }
+    st.endpoint = json.endpoint;
+    st.vapid = info.key;
+    st.publish = false;
+    this._save();
+
+    // Lets the service worker re-register by itself if the browser replaces the subscription.
+    await PushDB.set('reg', {
+      vapid: info.key, endpoint: json.endpoint,
+      channels: registered.map(({ ch, mute }) => ({ id: ch.id, token: ch.token, mute }))
+    });
+
+    for (const { ch } of registered) {
+      await this._upload(ch, ch.scope === 'group' ? scopes.group : scopes.local, ch.scope === 'group' || !group);
+    }
+  },
+
+  /* ----- user actions ----- */
+
+  // Must run directly from a click: browsers only show the permission prompt on a user gesture.
+  // Runs directly from the tap on the toggle. Subscribing shows the permission prompt, and browsers
+  // (iPhone and iPad strictly) only allow that as the immediate reaction to a tap, so it comes first.
+  async enable() {
+    if (!this.supported || !this.info) return;
+    try {
+      const reg = this._reg || await navigator.serviceWorker.ready;
+      await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: this._b64uToBytes(this.info.key) });
+    } catch (e) {
+      // Declined, or a subscription for an older server key exists. The latter is replaced below.
+    }
+    if (Notification.permission === 'granted') {
+      await this._exclusive(async () => {
+        this.state.on = true;
+        this._save();
+        await this._runSubscribed(await this._groupChannel());
+      });
+      if (!this.state.subs.length) {
+        await this.disable();
+        Sync._toast(L('pushFailed'), 4000);
+        return;
+      }
+    }
+    if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+  },
+
+  async disable() {
+    const st = this.state;
+    let othersInGroup = 0;
+    await this._exclusive(async () => {
+      st.on = false;
+      this._save();
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      const endpoint = st.endpoint || sub?.endpoint;
+      const group = await this._groupChannel();
+      for (const s of st.subs) {
+        try {
+          const r = await this._api({ op: 'unsubscribe', id: s.id, token: s.token, endpoint });
+          if (group && s.id === group.id) othersInGroup = r.data?.subs || 0;
+        } catch (e) {}
+      }
+      // Invalidates the endpoint, so nothing arrives even if the server could not be reached.
+      if (sub) await sub.unsubscribe();
+    });
+    st.on = false;
+    st.subs = [];
+    st.endpoint = '';
+    st.publish = othersInGroup > 0;
+    this._save();
+    this._registered = {};
+    this._uploaded = {};
+    try { await PushDB.del('reg'); await PushDB.del('keys'); } catch (e) {}
+    if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+  },
+
+  // Removes the shared schedule together with the sync data on the server.
+  async deleteGroup() {
+    try {
+      const group = await this._groupChannel();
+      if (!group) return;
+      await this._api({ op: 'delete', id: group.id, token: group.token });
+      this.state.subs = this.state.subs.filter(s => s.id !== group.id);
+      this.state.publish = false;
+      this._save();
+      delete this._registered[group.id];
+      delete this._uploaded[group.id];
+    } catch (e) {}
+  },
+
+  async test() {
+    const st = this.state;
+    if (!this.subscribed) return;
+    let result = null;
+    try {
+      const group = await this._groupChannel();
+      const ch = group && st.subs.some(s => s.id === group.id) ? group : await this._localChannel();
+      const i = this._randomHex(8);
+      const c = await this._encrypt(ch, { t: 't' }, i + ':r');
+      result = await this._api({ op: 'test', id: ch.id, token: ch.token, endpoint: st.endpoint, i, c });
+    } catch (e) {}
+    if (result?.data?.ok) Sync._toast(L('pushTestSent'));
+    else Sync._toast(L('pushTestFailed') + (result?.data?.status ? ` (${result.data.status})` : ''));
   }
 };
 
@@ -1559,6 +2440,7 @@ const App = {
   currentDate: new Date(),
   editingId: null,
   showSkipped: false,
+  showOverdue: true,
 
   async init() {
     Store.load();
@@ -1572,6 +2454,7 @@ const App = {
     Store.loadHidden();
     Store.loadIsolated();
     Store.loadNoSync();
+    Store.loadMuted();
     this.applyTheme();
     try { await loadLang('en'); }
     catch (e) { console.warn('Failed to load lang: en', e); }
@@ -1582,8 +2465,10 @@ const App = {
     this.render();
     document.getElementById('scroll-root').style.opacity = '';
     this._bindKeys();
+    Push.openFromUrl();
     Sync.init().then(() => {
       if (document.getElementById('settingsModal').classList.contains('open')) Settings.render();
+      Push.init();
     });
     DragSort.init();
     SwipeNav.init();
@@ -1609,6 +2494,44 @@ const App = {
     this.render();
   },
   
+  toggleOverdue() {
+    this.showOverdue = !this.showOverdue;
+    this.render();
+    requestAnimationFrame(() => {
+      const toggle = document.querySelector('.overdue-toggle');
+      if (toggle) toggle.focus({ preventScroll: true });
+    });
+  },
+
+  _renderOverdue(list) {
+    if (!list.length) return '';
+    const checkSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>`;
+    const rows = !this.showOverdue ? '' : list.map(({ todo, date }) => {
+      const id = Util.safeId(todo.id);
+      const d = Util.parseDate(date);
+      const when = `${L('dayNames')[d.getDay()]}, ${Util.formatShort(date)}${todo.time ? ' · ' + Util.formatTime(todo.time) : ''}`;
+      const folderColor = todo.folderId ? Util.safeColor(Folders.getColor(todo.folderId)) : null;
+      const borderStyle = folderColor ? `border-left:2px solid ${folderColor}` : '';
+      const action = todo.type === 'single'
+        ? `<button class="btn btn-outline btn-xs" onclick="event.stopPropagation();Overdue.moveToToday('${id}')">${L('overdueToday')}</button>`
+        : `<button class="btn btn-outline btn-xs" onclick="event.stopPropagation();Todos.toggleSkip('${id}','${date}')">${L('overdueDismiss')}</button>`;
+      return `<div class="todo-item overdue" style="${borderStyle}" data-id="${id}" data-ds="${date}" role="button" tabindex="0" aria-label="${Util.esc(todo.title)} - ${L('overdue')}" onclick="DetailView.show('${id}','${date}')">
+        <div class="todo-check-wrap" onclick="event.stopPropagation();Todos.toggleDone('${id}','${date}')">
+          <div class="todo-check">${checkSvg}</div>
+        </div>
+        <div class="todo-body"><div class="todo-title">${Util.esc(todo.title)}</div><div class="todo-time">${Util.esc(when)}</div></div>
+        ${action}
+      </div>`;
+    }).join('');
+    return `<div class="overdue-section">
+      <button class="overdue-toggle ${this.showOverdue ? 'is-on' : ''}" onclick="App.toggleOverdue()" aria-expanded="${this.showOverdue}">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+        ${L('overdue')}<span class="overdue-count">${list.length}</span>
+      </button>
+      <div class="overdue-list">${rows}</div>
+    </div>`;
+  },
+
   toggleShowSkipped(e) {
     if (e) e.stopPropagation();
     this.showSkipped = !this.showSkipped;
@@ -1747,7 +2670,7 @@ const App = {
     let html = '';
     allTags.forEach(tag => {
       const isActive = active.includes(tag);
-      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeTag = Util.jsAttr(tag);
       const isUrgent = tag === 'Urgent';
       html += `<button class="tag-menu-item ${isActive ? 'active' : ''} ${isUrgent ? 'tag-urgent' : ''}" onclick="event.stopPropagation();App.toggleTag('${safeTag}')">
         <span class="tag-menu-name">${Util.esc(tagLabel(tag))}</span>
@@ -1871,20 +2794,27 @@ const App = {
     this._renderTagDropdown();
     this._renderTagBadge();
 
+    Badge.update();
+    const overdueHtml = Util.isToday(ds) && Store.settings.overdue !== false
+      ? this._renderOverdue(Overdue.list(activeTags.length > 0
+          ? folderFiltered.filter(t => (t.tags || []).some(tag => activeTags.includes(tag)))
+          : folderFiltered, ds))
+      : '';
+
     const main = document.getElementById('mainContent');
 
     if (totalScheduled === 0) {
-      main.innerHTML = `<div class="empty-state"><div class="icon">✓</div><p>${L('noTodos')}<br>${L('enjoy')}</p></div>`;
+      main.innerHTML = overdueHtml + `<div class="empty-state"><div class="icon">✓</div><p>${L('noTodos')}<br>${L('enjoy')}</p></div>`;
       return;
     }
 
     if (visible.length === 0 || (active.length === 0 && done.length === 0 && skipped.length === 0)) {
-      main.innerHTML = `<div class="empty-state"><div class="icon">✓</div><p>${L('allDone')}</p></div>`;
+      main.innerHTML = overdueHtml + `<div class="empty-state"><div class="icon">✓</div><p>${L('allDone')}</p></div>`;
       return;
     }
 
     if (active.length === 0 && done.length === 0 && skipped.length > 0 && !this.showSkipped) {
-      main.innerHTML = `<div class="empty-state"><div class="icon">✓</div><p>${L('allDone')}</p></div>`;
+      main.innerHTML = overdueHtml + `<div class="empty-state"><div class="icon">✓</div><p>${L('allDone')}</p></div>`;
       return;
     }
 
@@ -1929,7 +2859,7 @@ const App = {
         </button>`
       : '';
 
-    main.innerHTML = `
+    main.innerHTML = `${overdueHtml}
       <div class="day-summary">
         <span>${active.length} ${L('open')} - ${done.length} ${L('done')}</span>
         ${skippedToggle}
@@ -1985,7 +2915,7 @@ const App = {
       e.preventDefault();
       const id = item.dataset.id;
       if (!id) return;
-      const ds = Util.dateStr(this.currentDate);
+      const ds = item.dataset.ds || Util.dateStr(this.currentDate);
       if (e.key === ' ') Todos.toggleDone(id, ds);
       else DetailView.show(id, ds);
     });
@@ -1993,6 +2923,31 @@ const App = {
 };
 
 const AddForm = {
+  // Per-todo reminder choice. Only offered where reminders are in use.
+  _remindField(t) {
+    if (!Push.relevant) return '';
+    const current = t.remind === false ? 'off' : (Push.LEADS.includes(t.remind) ? String(t.remind) : '');
+    const option = (value, label) => `<option value="${value}" ${current === value ? 'selected' : ''}>${label}</option>`;
+    return `<div class="form-group">
+        <label class="form-label" for="f_remind">${L('remindLabel')}</label>
+        <select class="form-input" id="f_remind" ${t.time ? '' : 'disabled'}>
+          ${option('', LF('remindDefault', Push.leadLabel(Push.config.lead)))}
+          ${option('off', L('remindOff'))}
+          ${Push.LEADS.map(m => option(String(m), Push.leadLabel(m))).join('')}
+        </select>
+        <div class="form-hint" id="f_remindHint" ${t.time ? 'hidden' : ''}>${L('remindHint')}</div>
+      </div>`;
+  },
+
+  // A reminder needs a time: the choice is only active while one is set.
+  _syncRemind() {
+    const select = document.getElementById('f_remind');
+    if (!select) return;
+    const hasTime = !!document.getElementById('f_time').value;
+    select.disabled = !hasTime;
+    document.getElementById('f_remindHint').hidden = hasTime;
+  },
+
   render(existing) {
     const t = existing || {};
     const type = (t.type === 'range' && !t.endDate && (t.rangeCount || 0) > 0) ? 'single' : (t.type || 'single');
@@ -2035,8 +2990,9 @@ const AddForm = {
       <div id="scheduleFields"></div>
       <div class="form-group">
         <label class="form-label">${L('dueTime')}</label>
-        <input autocomplete="off" class="form-input form-input-time" type="time" id="f_time" value="${t.time || ''}">
+        <input autocomplete="off" class="form-input form-input-time" type="time" id="f_time" value="${t.time || ''}" oninput="AddForm._syncRemind()">
       </div>
+      ${this._remindField(t)}
       <button class="btn-primary" onclick="AddForm.save()">${existing ? L('update') : L('save')}</button>
       ${existing ? `<button class="btn-delete" onclick="AddForm.confirmDelete('${t.id}')">${L('deleteTodo')}</button>` : ''}`;
 
@@ -2259,7 +3215,7 @@ const AddForm = {
     const container = document.getElementById('f_tag_selected');
     if (!container) return;
     container.innerHTML = this._currentTags.map(tag => {
-      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeTag = Util.jsAttr(tag);
       return `<span class="tag-pill">${Util.esc(tagLabel(tag))}<span class="tag-pill-remove" onclick="AddForm._removeTag('${safeTag}')">✕</span></span>`;
     }).join('');
   },
@@ -2345,7 +3301,7 @@ const AddForm = {
   
     let html = filtered.map(tag => {
       const sel = this._currentTags.includes(tag);
-      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeTag = Util.jsAttr(tag);
       const isUrgent = tag === 'Urgent';
       return `<button class="tag-dropdown-item ${sel ? 'selected' : ''} ${isUrgent ? 'tag-urgent' : ''}" onclick="event.preventDefault();AddForm.${sel ? '_removeTag' : '_addTag'}('${safeTag}')">
         ${Util.esc(tagLabel(tag))}
@@ -2357,7 +3313,7 @@ const AddForm = {
     );
   
     if (rawQuery && !isExisting) {
-      const safeQuery = rawQuery.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeQuery = Util.jsAttr(rawQuery);
       html += `<button class="tag-dropdown-item tag-dropdown-add" onclick="event.preventDefault();AddForm._addTag('${safeQuery}')">+ ${Util.esc(rawQuery)}</button>`;
     }
   
@@ -2381,6 +3337,12 @@ const AddForm = {
 
     const oldFolderId = todo.folderId || null;
     Object.assign(todo, { title, notes, time, type, _modified: Date.now() });
+    const remind = document.getElementById('f_remind');
+    if (remind) {
+      if (remind.value === 'off') todo.remind = false;
+      else if (remind.value === '') delete todo.remind;
+      else todo.remind = Number(remind.value);
+    }
     todo.tags = (this._currentTags || []).slice();
     if (!todo.tags.length) delete todo.tags;
     if (folderId) todo.folderId = folderId; else delete todo.folderId;
@@ -2482,6 +3444,7 @@ const DetailView = {
     if (todo.tags && todo.tags.length) html += `<div class="detail-field"><div class="detail-field-label">${L('tags')}</div><div class="detail-field-value"><div class="todo-tags">${todo.tags.map(tag => `<span class="todo-tag-chip${tag === 'Urgent' ? ' tag-urgent' : ''}">${Util.esc(tagLabel(tag))}</span>`).join('')}</div></div></div>`;
     html += `<div class="detail-field"><div class="detail-field-label">${L('schedule')}</div><div class="detail-field-value">${Todos.describe(todo)}</div></div>`;
     if (todo.time) html += `<div class="detail-field"><div class="detail-field-label">${L('dueTime')}</div><div class="detail-field-value">${Util.formatTime(todo.time)}</div></div>`;
+    if (todo.time && Push.relevant) html += `<div class="detail-field"><div class="detail-field-label">${L('remindLabel')}</div><div class="detail-field-value">${todo.remind === false ? L('remindOff') : Push.leadLabel(Push.leadFor(todo))}</div></div>`;
     html += `<div class="detail-field"><div class="detail-field-label">Status</div><div class="detail-field-value">${dn ? L('completed') : L('openSt')}</div></div>`;
 
     const skipped = Todos.isSkipped(todo, ds);
@@ -2557,7 +3520,7 @@ const ListView = {
         ${allTagsList.map(tag => {
           const cnt = folderBase.filter(t => (t.tags || []).includes(tag)).length;
           const isActive = this.tagFilter.includes(tag);
-          const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          const safeTag = Util.jsAttr(tag);
           return `<button class="chip chip-sm ${isActive ? 'active' : ''}" onclick="ListView.toggleTagFilter('${safeTag}')">${Util.esc(tagLabel(tag))} (${cnt})</button>`;
         }).join('')}
       </div>`;
@@ -2659,6 +3622,76 @@ const Settings = {
     </div>`;
   },
 
+  _renderPushSection() {
+    const st = Push.state;
+    const cfg = Push.config;
+    const on = Push.subscribed;
+    const infoIcon = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>`;
+    const note = (text) => `<div class="sync-note">${infoIcon}<span>${text}</span></div>`;
+    const banner = (text) => `<div class="offline-banner">${infoIcon}<span>${text}</span></div>`;
+
+    let body;
+    if (!Push.supported && !st.publish) {
+      body = note(isIOS() && !isStandalone() ? L('pushIOSHint') : L('pushUnsupported'));
+    } else if (Push.info === false) {
+      body = note(L('pushNoServer'));
+    } else {
+      const denied = Push.supported && Notification.permission === 'denied';
+      const ready = Push.supported && !!Push.info && !denied;
+      body = `
+        ${denied ? banner(L('pushDenied')) : ''}
+        ${!on && st.publish ? note(L('pushPublishNote')) : ''}
+        ${(on || st.publish) && Push.info && !Push.info.cronOk ? banner(L('pushCronWarning')) : ''}
+        ${Push.supported ? `<div class="setting-row">
+          <div class="setting-info"><div class="setting-label">${L('pushEnable')}</div><div class="setting-desc">${L('pushEnableSub')}</div></div>
+          <div class="setting-action"><div class="toggle-track ${on ? 'on' : ''} ${ready || on ? '' : 'disabled'}" ${ready || on ? `onclick="Push.${on ? 'disable' : 'enable'}()"` : ''}><div class="toggle-thumb"></div></div></div>
+        </div>` : ''}
+        ${on || st.publish ? `
+        <div class="setting-row">
+          <div class="setting-info"><div class="setting-label">${L('pushLead')}</div><div class="setting-desc">${L('pushLeadSub')}</div></div>
+          <div class="setting-action"><select class="form-input form-input-sm" onchange="Push.setConfig({ lead: Number(this.value) })">
+            ${Push.LEADS.map(m => `<option value="${m}" ${cfg.lead === m ? 'selected' : ''}>${Push.leadLabel(m)}</option>`).join('')}
+          </select></div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info"><div class="setting-label">${L('pushDigest')}</div><div class="setting-desc">${L('pushDigestSub')}</div></div>
+          <div class="setting-action"><div class="toggle-track ${cfg.digest ? 'on' : ''}" onclick="Push.setConfig({ digest: ${!cfg.digest} })"><div class="toggle-thumb"></div></div></div>
+        </div>
+        ${cfg.digest ? `<div class="setting-row wrap">
+          <div class="setting-info"><div class="setting-label">${L('pushDigestTime')}</div><div class="setting-desc">${L('pushDigestTimeSub')}</div></div>
+          <div class="setting-action push-times">
+            ${cfg.digestTimes.map((time, i) => `<span class="push-time">
+              <input autocomplete="off" class="form-input form-input-time" type="time" value="${time}" onchange="Push.setDigestTime(${i}, this.value)">
+              ${cfg.digestTimes.length > 1 ? `<button class="push-time-remove" onclick="Push.setDigestTime(${i}, null)" title="${L('delete')}" aria-label="${L('delete')}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>` : ''}
+            </span>`).join('')}
+            ${cfg.digestTimes.length < Push.MAX_DIGESTS ? `<button class="btn btn-outline btn-sm" onclick="Push.addDigestTime()">${L('pushDigestAdd')}</button>` : ''}
+          </div>
+        </div>` : ''}` : ''}
+        ${on ? `<div class="setting-row">
+          <div class="setting-info"><div class="setting-label">${L('pushTest')}</div><div class="setting-desc">${L('pushTestSub')}</div></div>
+          <div class="setting-action"><button class="btn btn-outline" onclick="Push.test()">${L('pushTestBtn')}</button></div>
+        </div>` : ''}
+        <div class="sync-note push-note">${infoIcon}<span>${L('pushNote')}
+          <button class="sync-privacy-link" onclick="Sync.showPrivacy()">${L('syncPrivacy')}</button></span>
+        </div>`;
+    }
+    return `<div class="sync-section">
+        <div class="sync-header">
+          <div class="setting-label">${L('notifications')}</div>
+          <span class="sync-status ${on ? 'on' : 'off'}"><span class="dot"></span>${on ? L('syncOn') : L('syncOff')}</span>
+        </div>
+        ${body}
+      </div>`;
+  },
+
+  toggleFlag(name) {
+    Store.settings[name] = Store.settings[name] === false;
+    Store.saveSettings();
+    Push.touch();
+    App.render();
+    this.render();
+  },
+
   render() {
     const body = document.getElementById('settingsModalBody');
     const isDark = Store.settings.theme === 'dark';
@@ -2694,6 +3727,10 @@ const Settings = {
               <div class="toggle-track ${isIsolated ? 'on' : ''}" onclick="Folders.toggleIsolated('${f.id}');Settings.render();App.render()"><div class="toggle-thumb"></div></div>
               <div><span class="toggle-label">${L('isolated')}</span><div class="toggle-desc">${L('isolatedDesc')}</div></div>
             </div>
+            ${Push.subscribed ? `<div class="toggle-row">
+              <div class="toggle-track ${Folders.isMuted(f.id) ? '' : 'on'} ${isHidden ? 'disabled' : ''}" onclick="Folders.toggleMuted('${f.id}');Settings.render()"><div class="toggle-thumb"></div></div>
+              <div><span class="toggle-label">${L('folderNotify')}</span><div class="toggle-desc">${L('folderNotifyDesc')}</div></div>
+            </div>` : ''}
             ${Sync.enabled ? `<div class="toggle-row">
               <div class="toggle-track ${isNoSync ? 'on' : ''} ${hasFolderSync ? 'disabled' : ''}" ${hasFolderSync ? '' : 'onclick="Settings.toggleNoSync(\'' + f.id + '\')"'}><div class="toggle-thumb"></div></div>
               <div><span class="toggle-label">${L('noSyncFolder')}</span><div class="toggle-desc">${L('noSyncDesc')}</div></div>
@@ -2706,7 +3743,7 @@ const Settings = {
           </div>
         </div>`;
       }
-      const tags = [isHidden ? L('hide') : '', isIsolated ? L('isolated') : '', isNoSync ? L('noSyncFolder') : '', hasFolderSync ? L('folderSync') : ''].filter(Boolean).join(', ');
+      const tags = [isHidden ? L('hide') : '', isIsolated ? L('isolated') : '', isNoSync ? L('noSyncFolder') : '', hasFolderSync ? L('folderSync') : '', Push.subscribed && !isHidden && Folders.isMuted(f.id) ? L('folderMuted') : ''].filter(Boolean).join(', ');
       return `<div class="folder-list-item ${isHidden ? 'dimmed' : ''}" data-folder-id="${f.id}">
         <div class="folder-dot-lg" style="background:${f.color}"></div>
         <div class="folder-list-item-body">
@@ -2793,6 +3830,16 @@ const Settings = {
         <div class="setting-action"><div class="toggle-track ${Store.settings.showTagsOnTodos ? 'on' : ''}" onclick="Settings.toggleShowTags()"><div class="toggle-thumb"></div></div></div>
       </div>
 
+      <div class="setting-row">
+        <div class="setting-info"><div class="setting-label">${L('showOverdue')}</div><div class="setting-desc">${L('showOverdueSub')}</div></div>
+        <div class="setting-action"><div class="toggle-track ${Store.settings.overdue !== false ? 'on' : ''}" onclick="Settings.toggleFlag('overdue')"><div class="toggle-thumb"></div></div></div>
+      </div>
+
+      ${Badge.supported ? `<div class="setting-row">
+        <div class="setting-info"><div class="setting-label">${L('appBadge')}</div><div class="setting-desc">${L('appBadgeSub')}</div></div>
+        <div class="setting-action"><div class="toggle-track ${Store.settings.badge !== false ? 'on' : ''}" onclick="Settings.toggleFlag('badge')"><div class="toggle-thumb"></div></div></div>
+      </div>` : ''}
+
       ${isStandalone() ? '' : (canInstallPwa && deferredInstallPrompt) ? `<div class="setting-row">
         <div class="setting-info"><div class="setting-label">${L('installApp')}</div><div class="setting-desc">${L('installSub')}</div></div>
         <div class="setting-action"><button class="btn btn-outline" onclick="Settings.installPwa()">${L('install')}</button></div>
@@ -2815,6 +3862,8 @@ const Settings = {
           <button class="btn btn-outline" onclick="Settings.addFolder()">${L('addFolder')}</button>
         </div>
       </div>
+
+      ${this._renderPushSection()}
 
       <div class="sync-section">
         <div class="sync-header">
@@ -2988,6 +4037,7 @@ const Settings = {
     Store.settings.lang = lang;
     Store.saveSettings();
     Settings._langCache = null;
+    Push.touch();
     App.render();
     this.render();
   },
@@ -3065,7 +4115,7 @@ const Settings = {
       if (credits.length) {
         const first = credits[0];
         const n = Util.esc(first.name);
-        const u = String(first.url || '').trim();
+        const u = /^https?:\/\//i.test(String(first.url || '').trim()) ? String(first.url).trim() : '';
         const link = u ? `<a href="${Util.esc(u)}" target="_blank" rel="noopener">${n}</a>` : n;
   
         if (credits.length === 1) {
@@ -3073,7 +4123,7 @@ const Settings = {
         } else {
           const rest = credits.slice(1).map(c => {
             const cn = Util.esc(c.name);
-            const cu = String(c.url || '').trim();
+            const cu = /^https?:\/\//i.test(String(c.url || '').trim()) ? String(c.url).trim() : '';
             return `<div>${cu ? `<a href="${Util.esc(cu)}" target="_blank" rel="noopener">${cn}</a>` : cn}</div>`;
           }).join('');
           parts.push(
@@ -3109,18 +4159,18 @@ const Settings = {
         Modal.confirm(L('importTodos'), LF('importMsg', data.todos.length), [
           { label: L('cancel'), cls: 'btn-outline', action() {} },
           { label: L('addExisting'), cls: 'btn-outline', action() {
-            Store.todos = [...Store.todos, ...data.todos.map(t => ({ ...t, id: Util.uid() }))];
+            Store.todos = [...Store.todos, ...Sanitize.todos(data.todos.map(t => ({ ...t, id: Util.uid() })))];
             if (data.folders) {
               const existingIds = new Set(Store.folders.map(f => f.id));
-              Store.folders = [...Store.folders, ...data.folders.filter(f => !existingIds.has(f.id))];
+              Store.folders = [...Store.folders, ...Sanitize.folders(data.folders).filter(f => !existingIds.has(f.id))];
               Store.saveFolders();
             }
             Store.saveTodos(); App.render(); Settings.render();
           }},
           { label: L('overwrite'), cls: 'btn-danger', action() {
-            Store.todos = data.todos;
-            if (data.folders) Store.folders = data.folders;
-            if (data.settings) { Store.settings = { ...Store.settings, ...data.settings }; Store.saveSettings(); App.applyTheme(); }
+            Store.todos = Sanitize.todos(data.todos);
+            if (data.folders) Store.folders = Sanitize.folders(data.folders);
+            if (data.settings) { Store.settings = { ...Store.settings, ...Sanitize.settings(data.settings) }; Store.saveSettings(); App.applyTheme(); }
             Store.saveFolders(); Store.saveTodos(); App.render(); Settings.render();
           }}
         ]);
@@ -3632,6 +4682,12 @@ const Welcome = {
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </div>
             <div class="wm-tip-text"><strong>${L('w5Tip4T')}</strong>${L('w5Tip4D')}</div>
+          </div>
+          <div class="wm-tip">
+            <div class="wm-tip-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${accent}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </div>
+            <div class="wm-tip-text"><strong>${L('w5Tip5T')}</strong>${L('w5Tip5D')}</div>
           </div>
         </div>
       </div>`
@@ -4201,4 +5257,6 @@ window.Welcome = Welcome;
 window.L = L;
 window.LF = LF;
 window.KbScroll = KbScroll;
+window.Push = Push;
+window.Overdue = Overdue;
 App.init();
